@@ -89,18 +89,7 @@ def to_command_line(gn_args):
 
 
 def is_host_build(args):
-  # If target_os == None, then this is a host build.
-  if args.target_os is None:
-    return True
-  # For linux arm64 builds, we cross compile from x64 hosts, so the
-  # target_os='linux' and linux-cpu='arm64'
-  if args.target_os == 'linux' and args.linux_cpu == 'arm64':
-    return True
-  # The Mac and host targets are redundant. Again, necessary to disambiguate
-  # during cross-compilation.
-  if args.target_os == 'mac':
-    return True
-  return False
+  return args.target_os is None
 
 
 # Determines whether a prebuilt Dart SDK can be used instead of building one.
@@ -502,7 +491,7 @@ def to_gn_args(args):
   # does not exist. Further, we set the 'host_cpu' so that it shares the
   # bitwidth of the 32-bit arm target.
   if sys.platform.startswith(
-      ('cygwin', 'win')) and args.target_os == 'android' and gn_args['target_cpu'] == 'arm':
+      ('cygwin', 'win')) and args.target_os != 'win' and gn_args['target_cpu'] == 'arm':
     gn_args['host_cpu'] = 'x86'
     gn_args['current_cpu'] = 'x86'
 
@@ -599,7 +588,7 @@ def to_gn_args(args):
   else:
     gn_args['skia_use_gl'] = args.target_os != 'fuchsia'
 
-  if sys.platform == 'darwin' and args.target_os not in ['android', 'fuchsia']:
+  if sys.platform == 'darwin' and args.target_os not in ['android', 'fuchsia', 'linux']:
     # OpenGL is deprecated on macOS > 10.11.
     # This is not necessarily needed but enabling this until we have a way to
     # build a macOS metal only shell and a gl only shell.
@@ -610,7 +599,7 @@ def to_gn_args(args):
   # Enable Vulkan on all platforms except for iOS. This is just
   # to save on mobile binary size, as there's no reason the Vulkan embedder
   # features can't work on these platforms.
-  if gn_args['target_os'] not in ['ios', 'mac']:
+  if gn_args['target_os'] not in ['ios', 'mac', 'linux']:
     gn_args['skia_use_vulkan'] = True
     gn_args['skia_use_vma'] = False
     gn_args['shell_enable_vulkan'] = True
@@ -698,12 +687,16 @@ def to_gn_args(args):
 
   # Enable pointer compression on 64-bit mobile targets. iOS is excluded due to
   # its inability to allocate address space without allocating memory.
-  if args.target_os in ['android'] and gn_args['target_cpu'] in ['x64', 'arm64']:
+  if args.target_os in ['android', 'linux'] and gn_args['target_cpu'] in ['x64', 'arm64']:
     gn_args['dart_use_compressed_pointers'] = True
 
   if args.target_os == 'fuchsia':
     gn_args['gn_configs_path'] = '//flutter/build/config/fuchsia/gn_configs.gni'
     gn_args['fuchsia_gn_sdk'] = '//flutter/tools/fuchsia/gn-sdk'
+
+  # Don't use the default Linux sysroot when buliding for Linux on macOS.
+  if sys.platform == 'darwin' and args.target_os == 'linux':
+    gn_args['use_default_linux_sysroot'] = False
 
   # Flags for Dart features:
   if args.use_mallinfo2:
@@ -730,9 +723,8 @@ def to_gn_args(args):
   # gen_snapshot, but the build defines otherwise make it look like the build is
   # for a host Windows build and make GN think we will be building ANGLE.
   # Angle is not used on Mac hosts as there are no tests for the OpenGL backend.
-  if is_host_build(args) or (args.target_os == 'android' and get_host_os() == 'win'):
-    # Don't include git commit information.
-    gn_args['angle_enable_commit_id'] = False
+  if (is_host_build(args) and gn_args['host_os'] != 'mac') or (args.target_os == 'linux' and
+                                                               get_host_os() == 'win'):
     # Do not build unnecessary parts of the ANGLE tree.
     gn_args['angle_build_all'] = False
     gn_args['angle_has_astc_encoder'] = False

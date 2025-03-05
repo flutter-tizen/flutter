@@ -122,7 +122,7 @@ vars = {
   "checkout_llvm": False,
 
   # Setup Git hooks by default.
-  'setup_githooks': True,
+  'setup_githooks': False,
 
   # When this is true, the Flutter Engine's configuration files and scripts for
   # RBE will be downloaded from CIPD. This option is only usable by Googlers.
