@@ -140,6 +140,10 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
   }
 
   impeller::TextureDescriptor desc;
+  desc.type = impeller::TextureType::kTextureExternalOES;
+  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
+  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
+  desc.mip_count = 1;
   desc.size = impeller::ISize(texture->width, texture->height);
 
   impeller::ContextGLES& context =
@@ -148,6 +152,9 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
       impeller::HandleType::kTexture, texture->target);
   std::shared_ptr<impeller::TextureGLES> image =
       impeller::TextureGLES::WrapTexture(context.GetReactor(), desc, handle);
+  image->MarkContentsInitialized();
+  image->SetCoordinateSystem(
+      impeller::TextureCoordinateSystem::kUploadFromHost);
 
   if (!image) {
     // In case Skia rejects the image, call the release proc so that
@@ -158,6 +165,14 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     FML_LOG(ERROR) << "Could not create external texture";
     return nullptr;
   }
+
+  if (!texture->bind_callback(texture->user_data)) {
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    return nullptr;
+  }
+
   if (texture->destruction_callback &&
       !context.GetReactor()->RegisterCleanupCallback(
           handle,
