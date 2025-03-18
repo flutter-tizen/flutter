@@ -139,15 +139,33 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     return nullptr;
   }
 
+  if (texture->bind_callback != nullptr) {
+    return ResolveTextureImpellerSurface(aiks_context, std::move(texture));
+  } else {
+    return ResolveTextureImpellerPixelbuffer(aiks_context, std::move(texture));
+  }
+}
+
+sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpellerPixelbuffer(
+    impeller::AiksContext* aiks_context,
+    std::unique_ptr<FlutterOpenGLTexture> texture) {
   impeller::TextureDescriptor desc;
   desc.size = impeller::ISize(texture->width, texture->height);
-
+  desc.type = impeller::TextureType::kTexture2D;
+  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
+  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
   impeller::ContextGLES& context =
       impeller::ContextGLES::Cast(*aiks_context->GetContext());
-  impeller::HandleGLES handle = context.GetReactor()->CreateHandle(
-      impeller::HandleType::kTexture, texture->target);
   std::shared_ptr<impeller::TextureGLES> image =
-      impeller::TextureGLES::WrapTexture(context.GetReactor(), desc, handle);
+      std::make_shared<impeller::TextureGLES>(context.GetReactor(), desc);
+
+  image->MarkContentsInitialized();
+  if (!image->SetContents(texture->buffer, texture->buffer_size)) {
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    return nullptr;
+  }
 
   if (!image) {
     // In case Skia rejects the image, call the release proc so that
@@ -158,13 +176,56 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     FML_LOG(ERROR) << "Could not create external texture";
     return nullptr;
   }
-  if (texture->destruction_callback &&
-      !context.GetReactor()->RegisterCleanupCallback(
-          handle,
-          [callback = texture->destruction_callback,
-           user_data = texture->user_data]() { callback(user_data); })) {
-    FML_LOG(ERROR) << "Could not register destruction callback";
+
+  if (texture->destruction_callback) {
+    texture->destruction_callback(texture->user_data);
+  }
+
+  return impeller::DlImageImpeller::Make(image);
+}
+
+sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpellerSurface(
+    impeller::AiksContext* aiks_context,
+    std::unique_ptr<FlutterOpenGLTexture> texture) {
+  impeller::TextureDescriptor desc;
+  desc.size = impeller::ISize(texture->width, texture->height);
+  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
+  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
+  desc.type = impeller::TextureType::kTextureExternalOES;
+  impeller::ContextGLES& context =
+      impeller::ContextGLES::Cast(*aiks_context->GetContext());
+  std::shared_ptr<impeller::TextureGLES> image =
+      std::make_shared<impeller::TextureGLES>(context.GetReactor(), desc);
+  image->MarkContentsInitialized();
+  image->SetCoordinateSystem(
+      impeller::TextureCoordinateSystem::kUploadFromHost);
+  if (!image->Bind()) {
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    FML_LOG(ERROR) << "Could not bind texture";
     return nullptr;
+  }
+
+  if (!image) {
+    // In case Skia rejects the image, call the release proc so that
+    // embedders can perform collection of intermediates.
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    FML_LOG(ERROR) << "Could not create external texture";
+    return nullptr;
+  }
+
+  if (!texture->bind_callback(texture->user_data)) {
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    return nullptr;
+  }
+
+  if (texture->destruction_callback) {
+    texture->destruction_callback(texture->user_data);
   }
 
   return impeller::DlImageImpeller::Make(image);
