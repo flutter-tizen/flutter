@@ -39,6 +39,14 @@ class EmbedderExternalTextureGL : public flutter::Texture {
                                         impeller::AiksContext* aiks_context,
                                         const SkISize& size);
 
+  sk_sp<DlImage> ResolveTextureImpellerPixelbuffer(
+      impeller::AiksContext* aiks_context,
+      std::unique_ptr<FlutterOpenGLTexture> texture);
+
+  sk_sp<DlImage> ResolveTextureImpellerSurface(
+      impeller::AiksContext* aiks_context,
+      std::unique_ptr<FlutterOpenGLTexture> texture);
+
   // |flutter::Texture|
   void Paint(PaintContext& context,
              const DlRect& bounds,
