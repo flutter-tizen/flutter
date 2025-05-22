@@ -18,7 +18,7 @@ else
   cd llvm-project
   git init
   git remote add origin https://github.com/llvm/llvm-project.git
-  git fetch --depth=1 origin llvmorg-17.0.6
+  git fetch --depth=1 origin llvmorg-18.1.8
   git checkout FETCH_HEAD
 fi
 
