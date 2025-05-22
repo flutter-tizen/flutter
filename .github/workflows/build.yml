@@ -54,6 +54,14 @@ jobs:
           gclient setdep --var=download_dart_sdk=False --var=download_android_deps=False --var=download_fuchsia_deps=False --deps-file=DEPS
           gclient sync -v --no-history --shallow
 
+      - name: Install LLVM-18
+        run: |
+          apt update
+          apt install -y wget gnupg lsb-release software-properties-common
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          ./llvm.sh 18
+
       - name: Generate sysroot
         run: flutter/engine/src/flutter/ci/tizen/generate_sysroot.py --out /tizen_tools/sysroot
 
@@ -67,7 +75,7 @@ jobs:
             --target-os linux \
             --linux-cpu ${{ matrix.arch }} \
             --no-goma \
-            --target-toolchain /tizen_tools/toolchains \
+            --target-toolchain /usr/lib/llvm-18 \
             --target-sysroot /tizen_tools/sysroot/${{ matrix.arch }} \
             --target-triple ${{ matrix.triple }} \
             --runtime-mode ${{ matrix.mode }} \
