@@ -15,7 +15,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v5
         with:
-          context: ci/tizen
-          file: ci/tizen/Dockerfile
+          context: engine/src/flutter/ci/tizen
+          file: engine/src/flutter/ci/tizen/Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/build-engine:latest
