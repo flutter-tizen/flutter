@@ -30,6 +30,7 @@ cmake -G Ninja \
   -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
   -DCMAKE_C_COMPILER=clang-11 \
   -DCMAKE_CXX_COMPILER=clang++-11 \
+  -DCMAKE_CXX_FLAGS="-mssse3" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
   ../llvm
