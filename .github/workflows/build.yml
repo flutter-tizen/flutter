@@ -119,7 +119,11 @@ jobs:
         run: |
           mkdir C:\workspace\flutter
           cd C:\workspace\flutter
-          git config --global core.autocrlf true
+          git config --global core.autocrlf false
+          git config --global core.filemode false
+          git config --global core.fscache true
+          git config --global core.preloadindex true
+          git config --global depot-tools.allowGlobalGitConfig true
           git init --quiet
           git remote add origin https://github.com/${{ github.repository }}
           git fetch --depth 1 origin ${{ github.sha }}
@@ -158,8 +162,7 @@ jobs:
             --runtime-mode=${{ matrix.mode }} `
             --no-goma `
             --target-dir build
-          # TODO(jsuya) : https://github.com/flutter/flutter/issues/163487
-          C:\workspace\flutter\engine\src\flutter/third_party/ninja/ninja -C .\out\build gen_snapshot
+          ninja -C .\out\build gen_snapshot
 
       - uses: actions/upload-artifact@v4
         with:
@@ -216,8 +219,7 @@ jobs:
             --disable-desktop-embeddings \
             --target-dir build
           cd engine/src
-          # TODO(jsuya) : https://github.com/flutter/flutter/issues/163487
-          flutter/third_party/ninja/ninja -C out/build clang_arm64/gen_snapshot
+          ninja -C out/build clang_arm64/gen_snapshot
 
       - uses: actions/upload-artifact@v4
         with:
@@ -274,8 +276,7 @@ jobs:
             --disable-desktop-embeddings \
             --target-dir build
           cd engine/src
-          # TODO(jsuya) : https://github.com/flutter/flutter/issues/163487
-          flutter/third_party/ninja/ninja -C out/build clang_x64/gen_snapshot
+          ninja -C out/build clang_x64/gen_snapshot
 
       - uses: actions/upload-artifact@v4
         with:
