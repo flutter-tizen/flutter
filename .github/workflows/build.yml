@@ -119,7 +119,13 @@ jobs:
         run: |
           mkdir C:\workspace\flutter
           cd C:\workspace\flutter
-          git config --global core.autocrlf true
+          # git config --global core.autocrlf true
+
+          git config --global core.autocrlf false
+          git config --global core.filemode false
+          git config --global core.fscache true
+          git config --global core.preloadindex true
+          git config --global depot-tools.allowGlobalGitConfig true
           git init --quiet
           git remote add origin https://github.com/${{ github.repository }}
           git fetch --depth 1 origin ${{ github.sha }}
@@ -129,7 +135,7 @@ jobs:
         run: |
           Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -Force
           echo "DEPOT_TOOLS_WIN_TOOLCHAIN=0" >> $Env:GITHUB_ENV
-          echo "GYP_MSVS_OVERRIDE_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise" >> $Env:GITHUB_ENV
+          echo "GYP_MSVS_OVERRIDE_PATH=C:\Program Files\Microsoft Visual Studio\2022\Enterprise" >> $Env:GITHUB_ENV
           echo "WINDOWSSDKDIR=C:\Program Files (x86)\Windows Kits\10" >> $Env:GITHUB_ENV
 
       - name: Install depot_tools
@@ -147,7 +153,7 @@ jobs:
           # TODO(jsuya) : pipes deprecated in python 3.13. (https://dart-review.googlesource.com/c/sdk/+/307620)
           (Get-Content "engine/src/build/vs_toolchain.py") | ForEach-Object {  $_ -replace 'import pipes',''  } | Set-Content "engine/src/build/vs_toolchain.py"
           gclient setdep --var=download_dart_sdk=False --var=download_android_deps=False --var=download_fuchsia_deps=False --deps-file=DEPS
-          gclient sync -v --no-history --shallow --with_tags
+          gclient sync -v --no-history --shallow
 
       - name: Build
         working-directory: C:\workspace\flutter\engine\src
