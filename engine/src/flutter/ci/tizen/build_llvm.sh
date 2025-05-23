@@ -18,7 +18,7 @@ else
   cd llvm-project
   git init
   git remote add origin https://github.com/llvm/llvm-project.git
-  git fetch --depth=1 origin llvmorg-17.0.6
+  git fetch --depth=1 origin llvmorg-18.1.8
   git checkout FETCH_HEAD
 fi
 
@@ -29,6 +29,7 @@ cmake -G Ninja \
   -DLLVM_ENABLE_PROJECTS="clang" \
   -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
   -DCMAKE_C_COMPILER=clang-11 \
+  -DCMAKE_CXX_FLAGS="-mssse3" \
   -DCMAKE_CXX_COMPILER=clang++-11 \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
