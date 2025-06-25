@@ -150,10 +150,6 @@ jobs:
           (Get-Content ".gclient") | ForEach-Object {  $_ -replace "'flutter'","'.'"  } | Set-Content ".gclient"
           # TODO(jsuya) : pipes deprecated in python 3.13. (https://dart-review.googlesource.com/c/sdk/+/307620)
           (Get-Content "engine/src/build/vs_toolchain.py") | ForEach-Object {  $_ -replace 'import pipes',''  } | Set-Content "engine/src/build/vs_toolchain.py"
-
-          # TODO(jsuya) : Temporary fix to Microsoft STL compiler compatibility checks(https://github.com/flutter-tizen/flutter-tizen/pull/635#issuecomment-2990206946)
-          (Get-Content "engine/src/build/config/compiler/BUILD.gn") | ForEach-Object { $_; if ($_.Trim() -eq '"__STD_C",') { '    "_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",' } } | Set-Content "engine/src/build/config/compiler/BUILD.gn"
-
           gclient setdep --var=download_dart_sdk=False --var=download_android_deps=False --var=download_fuchsia_deps=False --deps-file=DEPS
           gclient sync -v --no-history --shallow
 
