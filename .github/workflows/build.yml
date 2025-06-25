@@ -142,6 +142,12 @@ jobs:
           7z x -y -o"C:\workspace\depot_tools" .\depot_tools.zip
           echo "C:\workspace\depot_tools" >> $Env:GITHUB_PATH
 
+      - name: Set up Clang
+        uses: egor-tensin/setup-clang@v1
+        with:
+          version: 19.1.7
+          platform: x64
+
       - name: Run gclient sync
         working-directory: C:\workspace\flutter
         shell: powershell
