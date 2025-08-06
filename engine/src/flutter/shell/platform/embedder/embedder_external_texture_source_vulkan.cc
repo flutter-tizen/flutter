@@ -12,6 +12,21 @@
 
 namespace flutter {
 
+bool RequiresYCBCRConversion(impeller::vk::Format format) {
+  switch (format) {
+    case impeller::vk::Format::eG8B8R83Plane420Unorm:
+    case impeller::vk::Format::eG8B8R82Plane420Unorm:
+    case impeller::vk::Format::eG8B8R83Plane422Unorm:
+    case impeller::vk::Format::eG8B8R82Plane422Unorm:
+    case impeller::vk::Format::eG8B8R83Plane444Unorm:
+      return true;
+    default:
+      // NOTE: NOT EXHAUSTIVE.
+      break;
+  }
+  return false;
+}
+
 EmbedderExternalTextureSourceVulkan::EmbedderExternalTextureSourceVulkan(
     const std::shared_ptr<impeller::Context>& p_context,
     FlutterVulkanTexture* embedder_desc)
@@ -22,15 +37,21 @@ EmbedderExternalTextureSourceVulkan::EmbedderExternalTextureSourceVulkan(
       impeller::vk::Image(reinterpret_cast<VkImage>(embedder_desc->image));
   texture_device_memory_ = impeller::vk::DeviceMemory(
       reinterpret_cast<VkDeviceMemory>(embedder_desc->image_memory));
-  // Figure out how to perform YUV conversions.
-  auto yuv_conversion = CreateYUVConversion(context, embedder_desc);
-  if (!yuv_conversion || !yuv_conversion->IsValid()) {
-    VALIDATION_LOG << "Fail to create yuv conversion";
-    return;
+
+  needs_yuv_conversion_ = RequiresYCBCRConversion(
+      static_cast<impeller::vk::Format>(embedder_desc->format));
+  std::shared_ptr<impeller::YUVConversionVK> yuv_conversion;
+  if (needs_yuv_conversion_) {
+    // Figure out how to perform YUV conversions.
+    yuv_conversion = CreateYUVConversion(context, embedder_desc);
+    if (!yuv_conversion || !yuv_conversion->IsValid()) {
+      VALIDATION_LOG << "Fail to create yuv conversion";
+      return;
+    }
   }
 
   // Create image view for the newly created image.
-  if (!CreateTextureImageView(device)) {
+  if (!CreateTextureImageView(device, embedder_desc, yuv_conversion)) {
     VALIDATION_LOG << "Fail to create texture image view";
     return;
   }
@@ -111,24 +132,32 @@ EmbedderExternalTextureSourceVulkan::CreateYUVConversion(
 }
 
 bool EmbedderExternalTextureSourceVulkan::CreateTextureImageView(
-    const impeller::vk::Device& device) {
+    const impeller::vk::Device& device,
+    FlutterVulkanTexture* embedder_desc,
+    const std::shared_ptr<impeller::YUVConversionVK>& yuv_conversion_wrapper) {
   impeller::vk::StructureChain<impeller::vk::ImageViewCreateInfo,
                                impeller::vk::SamplerYcbcrConversionInfo>
       view_chain;
   auto& view_info = view_chain.get();
   view_info.image = texture_image_;
   view_info.viewType = impeller::vk::ImageViewType::e2D;
-  view_info.format = impeller::vk::Format::eR8G8B8A8Srgb;
+  view_info.format = static_cast<impeller::vk::Format>(embedder_desc->format);
   view_info.subresourceRange.aspectMask =
       impeller::vk::ImageAspectFlagBits::eColor;
   view_info.subresourceRange.baseMipLevel = 0u;
   view_info.subresourceRange.baseArrayLayer = 0u;
   view_info.subresourceRange.levelCount = 1;
   view_info.subresourceRange.layerCount = 1;
+
+  if (RequiresYCBCRConversion(
+          static_cast<impeller::vk::Format>(embedder_desc->format))) {
+    view_chain.get<impeller::vk::SamplerYcbcrConversionInfo>().conversion =
+        yuv_conversion_wrapper->GetConversion();
+  } else {
+    view_chain.unlink<impeller::vk::SamplerYcbcrConversionInfo>();
+  }
   auto image_view = device.createImageViewUnique(view_info);
   if (image_view.result != impeller::vk::Result::eSuccess) {
-    VALIDATION_LOG << "Could not create external image view: "
-                   << impeller::vk::to_string(image_view.result);
     return false;
   }
   texture_image_view_ = std::move(image_view.value);
