@@ -124,15 +124,14 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
 
   GrVkImageInfo image_info = {};
   if (IsYUVVkFormat(static_cast<VkFormat>(texture->format))) {
-    FML_LOG(ERROR) << "try to create YUV image-002.....";
     skgpu::VulkanYcbcrConversionInfo ycbcr_info = {
         static_cast<VkFormat>(texture->format),
         0,
         VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709,
-        VK_SAMPLER_YCBCR_RANGE_ITU_NARROW,
+        VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
         VK_CHROMA_LOCATION_COSITED_EVEN,
         VK_CHROMA_LOCATION_COSITED_EVEN,
-        VK_FILTER_LINEAR,
+        VK_FILTER_NEAREST,
         false,
         static_cast<VkFormatFeatureFlags>(texture->format_features)};
 
@@ -144,10 +143,9 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     image_info = {.fImage = reinterpret_cast<VkImage>(texture->image),
                   .fAlloc = alloc,
                   .fImageTiling = VK_IMAGE_TILING_LINEAR,
-                  .fImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                  .fImageLayout = VK_IMAGE_LAYOUT_PREINITIALIZED,
                   .fFormat = static_cast<VkFormat>(texture->format),
-                  .fImageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                  .fImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                       VK_IMAGE_USAGE_SAMPLED_BIT,
                   .fSampleCount = 1,
@@ -170,9 +168,6 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
 
   auto gr_backend_texture =
       GrBackendTextures::MakeVk(width, height, image_info);
-  FML_LOG(ERROR) << "backend texture isValid : "
-                 << gr_backend_texture.isValid();
-  // FML_LOG(ERROR) << "backend texture isValid : " << gr_backend_texture.;
   SkImages::TextureReleaseProc release_proc = texture->destruction_callback;
   auto image =
       SkImages::BorrowTextureFrom(context,                   // context
@@ -191,7 +186,6 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     if (release_proc) {
       release_proc(texture->user_data);
     }
-    FML_LOG(ERROR) << "Could not create external texture.....";
     return nullptr;
   }
 

@@ -43,7 +43,10 @@ class EmbedderExternalTextureSourceVulkan final
   std::shared_ptr<impeller::YUVConversionVK> GetYUVConversion() const override;
 
  private:
-  bool CreateTextureImageView(const impeller::vk::Device& device);
+  bool CreateTextureImageView(
+      const impeller::vk::Device& device,
+      FlutterVulkanTexture* embedder_desc,
+      const std::shared_ptr<impeller::YUVConversionVK>& yuv_conversion_wrapper);
   impeller::TextureDescriptor ToTextureDescriptor(
       FlutterVulkanTexture* embedder_desc);
   std::shared_ptr<impeller::YUVConversionVK> CreateYUVConversion(
