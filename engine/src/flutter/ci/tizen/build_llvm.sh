@@ -43,4 +43,5 @@ for name in ar readelf nm strip; do
   ln -sf llvm-$name arm-linux-gnueabi-$name
   ln -sf llvm-$name aarch64-linux-gnu-$name
   ln -sf llvm-$name i686-linux-gnu-$name
+  ln -sf llvm-$name x86_64-linux-gnu-$name
 done
