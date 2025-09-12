@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        arch: [arm, arm64, x86]
+        arch: [arm, arm64, x86, x64]
         mode: [debug, release, profile]
         include:
           - arch: arm
@@ -21,6 +21,8 @@ jobs:
             triple: aarch64-linux-gnu
           - arch: x86
             triple: i686-linux-gnu
+          - arch: x64
+            triple: x86_64-linux-gnu
         exclude:
           - arch: x86
             mode: release
@@ -58,6 +60,7 @@ jobs:
         run: flutter/engine/src/flutter/ci/tizen/generate_sysroot.py --out /tizen_tools/sysroot
 
       - name: Build
+        if: ${{ matrix.arch != 'x64' }}
         run: |
           cd flutter
           # Ignore unsupported linker option.
@@ -78,11 +81,36 @@ jobs:
           ninja -C out/build flutter_engine_library
           cp -f flutter/third_party/icu/flutter/icudtl.dat out/build
 
+      - name: Build(x64)
+        if: ${{ matrix.arch == 'x64' }}
+        run: |
+          cd flutter
+
+          engine/src/flutter/tools/gn \
+          --target-os linux \
+          --linux-cpu ${{ matrix.arch }} \
+          --no-goma \
+          --target-triple ${{ matrix.triple }} \
+          --runtime-mode ${{ matrix.mode }} \
+          --enable-fontconfig \
+          --disable-desktop-embeddings \
+          --target-dir build
+
+          cd engine/src
+          ninja -C out/build flutter_engine_library
+          cp -f flutter/third_party/icu/flutter/icudtl.dat out/build
+
       - name: Build gen_snapshot
-        if: ${{ matrix.mode != 'debug' }}
+        if: ${{ matrix.mode != 'debug' && matrix.arch != 'x64'}}
         run: |
           cd flutter
           ninja -C engine/src/out/build clang_x64/gen_snapshot
+
+      - name: Build gen_snapshot(x64)
+        if: ${{ matrix.mode != 'debug' && matrix.arch == 'x64'}}
+        run: |
+          cd flutter
+          ninja -C engine/src/out/build gen_snapshot
 
       - uses: actions/upload-artifact@v4
         with:
@@ -100,14 +128,21 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.mode != 'debug' }}
+        if: ${{ matrix.mode != 'debug' && matrix.arch != 'x64'}}
         with:
           name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64
           path: flutter/engine/src/out/build/clang_x64/gen_snapshot
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.mode != 'debug' && matrix.arch == 'x64'}}
+        with:
+          name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64
+          path: flutter/engine/src/out/build/gen_snapshot
+          if-no-files-found: error
+
   windows-build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     strategy:
       matrix:
