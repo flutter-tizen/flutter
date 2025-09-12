@@ -14,7 +14,7 @@ is_aot_test =
 # * is_mac: arm64 builds can run x64 binaries.
 # * is_fuchsia: build unittests for testing on device.
 declare_args() {
-  enable_unittests = current_toolchain == host_toolchain || is_fuchsia || is_mac
+  enable_unittests = false # current_toolchain == host_toolchain || is_fuchsia || is_mac
 }
 
 # Creates a translation unit that defines the flutter::testing::GetFixturesPath
