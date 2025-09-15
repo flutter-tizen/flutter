@@ -128,13 +128,6 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.mode != 'debug' }}
-        with:
-          name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64
-          path: flutter/engine/src/out/build/clang_x64/gen_snapshot
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
         if: ${{ matrix.mode != 'debug' && matrix.arch != 'x64'}}
         with:
           name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64

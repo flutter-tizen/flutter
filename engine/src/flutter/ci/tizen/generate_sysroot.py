@@ -91,7 +91,7 @@ def generate_sysroot(sysroot: Path, api_version: float, arch: str, quiet=False):
   if not asm.exists():
     os.symlink('asm-' + arch, asm)
   pkgconfig = sysroot / 'usr' / 'lib' / 'pkgconfig'
-  if (arch == 'arm64') and not pkgconfig.exists():
+  if arch == 'arm64' and not pkgconfig.exists():
     os.symlink('../lib64/pkgconfig', pkgconfig)
 
   # Copy objects required by the linker, such as crtbeginS.o and libgcc.a.
