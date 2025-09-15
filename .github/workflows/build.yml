@@ -23,6 +23,11 @@ jobs:
             triple: i686-linux-gnu
           - arch: x64
             triple: x86_64-linux-gnu
+        exclude:
+          - arch: x86
+            mode: release
+          - arch: x86
+            mode: profile
 
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +149,7 @@ jobs:
           if-no-files-found: error
 
   windows-build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     strategy:
       matrix:
