@@ -55,7 +55,7 @@ jobs:
         run: flutter/engine/src/flutter/ci/tizen/generate_sysroot.py --out /tizen_tools/sysroot
 
       - name: Build
-        if: ${{ matrix.arch != x64 }}
+        if: ${{ matrix.arch != 'x64' }}
         run: |
           cd flutter
           # Ignore unsupported linker option.
@@ -77,11 +77,11 @@ jobs:
           cp -f flutter/third_party/icu/flutter/icudtl.dat out/build
 
       - name: Build(x64)
-        if: ${{ matrix.arch == x64 }}
+        if: ${{ matrix.arch == 'x64' }}
         run: |
           cd flutter
 
-          flutter/tools/gn \
+          engine/src/flutter/tools/gn \
           --target-os linux \
           --linux-cpu ${{ matrix.arch }} \
           --no-goma \
@@ -96,13 +96,13 @@ jobs:
           cp -f flutter/third_party/icu/flutter/icudtl.dat out/build
 
       - name: Build gen_snapshot
-        if: ${{ matrix.mode != 'debug' && matrix.arch != x64}}
+        if: ${{ matrix.mode != 'debug' && matrix.arch != 'x64'}}
         run: |
           cd flutter
           ninja -C engine/src/out/build clang_x64/gen_snapshot
 
       - name: Build gen_snapshot(x64)
-        if: ${{ matrix.mode != 'debug' && matrix.arch == x64}}
+        if: ${{ matrix.mode != 'debug' && matrix.arch == 'x64'}}
         run: |
           cd flutter
           ninja -C engine/src/out/build gen_snapshot
@@ -130,14 +130,14 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.mode != 'debug' && matrix.arch != x64}}
+        if: ${{ matrix.mode != 'debug' && matrix.arch != 'x64'}}
         with:
           name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64
           path: flutter/engine/src/out/build/clang_x64/gen_snapshot
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: ${{ matrix.mode != 'debug' && matrix.arch == x64}}
+        if: ${{ matrix.mode != 'debug' && matrix.arch == 'x64'}}
         with:
           name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_linux-x64
           path: flutter/engine/src/out/build/gen_snapshot
