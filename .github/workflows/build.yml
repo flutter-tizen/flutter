@@ -121,7 +121,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' && matrix.arch != 'x64' }}
         with:
           name: tizen-${{ matrix.arch }}-${{ matrix.mode }}_symbols
           path: flutter/engine/src/out/build/so.unstripped/libflutter_engine.so
