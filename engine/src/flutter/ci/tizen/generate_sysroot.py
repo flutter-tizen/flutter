@@ -41,10 +41,10 @@ def generate_sysroot(sysroot: Path, api_version: float, arch: str, quiet=False):
   else:
     sys.exit('Unknown arch: ' + arch)
 
-  base_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Base/latest/repos/standard/packages'.format(
+  base_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Base/reference/repos/standard/packages'.format(
       api_version, api_version
   )
-  unified_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Unified/latest/repos/standard/packages'.format(
+  unified_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Unified/reference/repos/standard/packages'.format(
       api_version, api_version
   )
 
