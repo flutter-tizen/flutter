@@ -142,7 +142,7 @@ jobs:
           if-no-files-found: error
 
   windows-build:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     strategy:
       matrix:
