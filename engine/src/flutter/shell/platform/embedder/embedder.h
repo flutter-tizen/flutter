@@ -963,12 +963,6 @@ typedef struct {
   FlutterVulkanDeviceMemoryHandle image_memory;
   /// The VkFormat of the image (for example: VK_FORMAT_R8G8B8A8_UNORM).
   uint32_t format;
-  /// The linear tiling features of the image (for example:
-  /// VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT).
-  uint32_t format_features;
-
-  uint64_t alloc_size;
-
   /// User data to be returned on the invocation of the destruction callback.
   void* user_data;
   /// Callback invoked (on an engine managed thread) that asks the embedder to

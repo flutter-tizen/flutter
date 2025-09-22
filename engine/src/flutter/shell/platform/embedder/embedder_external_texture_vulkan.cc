@@ -72,35 +72,6 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTexture(
   }
 }
 
-bool IsYUVVkFormat(const VkFormat format) {
-  switch (format) {
-    case VK_FORMAT_G8_B8_R8_3PLANE_420_UNORM:
-    case VK_FORMAT_G8_B8R8_2PLANE_420_UNORM:
-    case VK_FORMAT_G8_B8_R8_3PLANE_422_UNORM:
-    case VK_FORMAT_G8_B8R8_2PLANE_422_UNORM:
-    case VK_FORMAT_G8_B8_R8_3PLANE_444_UNORM:
-    case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16:
-    case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16:
-    case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_422_UNORM_3PACK16:
-    case VK_FORMAT_G10X6_B10X6R10X6_2PLANE_422_UNORM_3PACK16:
-    case VK_FORMAT_G10X6_B10X6_R10X6_3PLANE_444_UNORM_3PACK16:
-    case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16:
-    case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16:
-    case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_422_UNORM_3PACK16:
-    case VK_FORMAT_G12X4_B12X4R12X4_2PLANE_422_UNORM_3PACK16:
-    case VK_FORMAT_G12X4_B12X4_R12X4_3PLANE_444_UNORM_3PACK16:
-    case VK_FORMAT_G16_B16_R16_3PLANE_420_UNORM:
-    case VK_FORMAT_G16_B16R16_2PLANE_420_UNORM:
-    case VK_FORMAT_G16_B16_R16_3PLANE_422_UNORM:
-    case VK_FORMAT_G16_B16R16_2PLANE_422_UNORM:
-    case VK_FORMAT_G16_B16_R16_3PLANE_444_UNORM:
-      return true;
-
-    default:
-      return false;
-  }
-}
-
 sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     int64_t texture_id,
     GrDirectContext* context,
@@ -122,49 +93,18 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     height = texture->height;
   }
 
-  GrVkImageInfo image_info = {};
-  if (IsYUVVkFormat(static_cast<VkFormat>(texture->format))) {
-    skgpu::VulkanYcbcrConversionInfo ycbcr_info = {
-        static_cast<VkFormat>(texture->format),
-        0,
-        VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709,
-        VK_SAMPLER_YCBCR_RANGE_ITU_FULL,
-        VK_CHROMA_LOCATION_COSITED_EVEN,
-        VK_CHROMA_LOCATION_COSITED_EVEN,
-        VK_FILTER_NEAREST,
-        false,
-        static_cast<VkFormatFeatureFlags>(texture->format_features)};
-
-    skgpu::VulkanAlloc alloc;
-    alloc.fMemory = reinterpret_cast<VkDeviceMemory>(texture->image_memory);
-    alloc.fOffset = 0;
-    alloc.fSize = texture->alloc_size;
-
-    image_info = {.fImage = reinterpret_cast<VkImage>(texture->image),
-                  .fAlloc = alloc,
-                  .fImageTiling = VK_IMAGE_TILING_LINEAR,
-                  .fImageLayout = VK_IMAGE_LAYOUT_PREINITIALIZED,
-                  .fFormat = static_cast<VkFormat>(texture->format),
-                  .fImageUsageFlags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                      VK_IMAGE_USAGE_SAMPLED_BIT,
-                  .fSampleCount = 1,
-                  .fLevelCount = 1,
-                  .fYcbcrConversionInfo = ycbcr_info};
-  } else {
-    image_info = {
-        .fImage = reinterpret_cast<VkImage>(texture->image),
-        .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
-        .fImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .fFormat = static_cast<VkFormat>(texture->format),
-        .fImageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                            VK_IMAGE_USAGE_SAMPLED_BIT,
-        .fSampleCount = 1,
-        .fLevelCount = 1,
-    };
-  }
+  GrVkImageInfo image_info = {
+      .fImage = reinterpret_cast<VkImage>(texture->image),
+      .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
+      .fImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .fFormat = static_cast<VkFormat>(texture->format),
+      .fImageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                          VK_IMAGE_USAGE_SAMPLED_BIT,
+      .fSampleCount = 1,
+      .fLevelCount = 1,
+  };
 
   auto gr_backend_texture =
       GrBackendTextures::MakeVk(width, height, image_info);
