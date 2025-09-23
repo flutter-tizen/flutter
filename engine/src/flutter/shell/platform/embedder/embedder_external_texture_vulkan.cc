@@ -40,11 +40,8 @@ void EmbedderExternalTextureVulkan::Paint(PaintContext& context,
                                           const DlImageSampling sampling) {
   if (last_image_ == nullptr) {
     last_image_ =
-        ResolveTexture(Id(),                                                 //
-                       context.gr_context,                                   //
-                       context.aiks_context,                                 //
-                       SkISize::Make(bounds.GetWidth(), bounds.GetHeight())  //
-        );
+        ResolveTexture(Id(), context.gr_context, context.aiks_context,
+                       SkISize::Make(bounds.GetWidth(), bounds.GetHeight()));
   }
 
   DlCanvas* canvas = context.canvas;
