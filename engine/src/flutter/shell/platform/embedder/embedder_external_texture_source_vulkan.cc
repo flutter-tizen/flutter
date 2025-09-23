@@ -95,7 +95,8 @@ impeller::TextureDescriptor
 EmbedderExternalTextureSourceVulkan::ToTextureDescriptor(
     FlutterVulkanTexture* embedder_desc) {
   const auto size =
-      impeller::ISize{embedder_desc->width, embedder_desc->height};
+      impeller::ISize{static_cast<int64_t>(embedder_desc->width),
+                      static_cast<int64_t>(embedder_desc->height)};
   impeller::TextureDescriptor desc;
   desc.storage_mode = impeller::StorageMode::kDevicePrivate;
   desc.format = ToPixelFormat(embedder_desc->format);
