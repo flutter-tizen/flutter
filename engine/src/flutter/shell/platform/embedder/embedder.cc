@@ -2344,13 +2344,12 @@ FlutterEngineResult FlutterEngineInitialize(size_t version,
   }
 #endif
 #ifdef SHELL_ENABLE_VULKAN
-  flutter::EmbedderExternalTextureVulkan::ExternalTextureCallback
-      external_texture_vulkan_callback;
   if (config->type == kVulkan) {
     const FlutterVulkanRendererConfig* vulkan_config = &config->vulkan;
-    if (SAFE_ACCESS(vulkan_config, external_texture_frame_callback, nullptr)) {
-      external_texture_vulkan_callback =
-          [ptr = vulkan_config->external_texture_frame_callback, user_data](
+    if (auto callback = SAFE_ACCESS(vulkan_config,
+                                    external_texture_frame_callback, nullptr)) {
+      auto external_texture_vulkan_callback =
+          [ptr = callback, user_data](
               int64_t texture_identifier, size_t width,
               size_t height) -> std::unique_ptr<FlutterVulkanTexture> {
         std::unique_ptr<FlutterVulkanTexture> texture =
