@@ -70,8 +70,10 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTexture(
     const SkISize& size) {
   if (!!aiks_context) {
     return ResolveTextureImpeller(texture_id, aiks_context, size);
-  } else {
+  } else if (!!context) {
     return ResolveTextureSkia(texture_id, context, size);
+  } else {
+    return nullptr;
   }
 }
 
