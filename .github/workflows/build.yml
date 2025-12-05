@@ -65,6 +65,7 @@ jobs:
           cd flutter
           # Ignore unsupported linker option.
           sed -i "/-Wl,--undefined-version/d" engine/src/build/config/compiler/BUILD.gn
+          sed -i "s/Wno-nontrivial-memcall/Wno-nontrivial-memaccess/g" engine/src/build/config/compiler/BUILD.gn
 
           engine/src/flutter/tools/gn \
             --target-os linux \
