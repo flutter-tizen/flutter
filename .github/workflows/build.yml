@@ -71,6 +71,7 @@ jobs:
             --target-os linux \
             --linux-cpu ${{ matrix.arch }} \
             --no-goma \
+            --no-lto \
             --target-toolchain /tizen_tools/toolchains \
             --target-sysroot /tizen_tools/sysroot/${{ matrix.arch }} \
             --target-triple ${{ matrix.triple }} \
