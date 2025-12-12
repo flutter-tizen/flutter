@@ -405,6 +405,7 @@ typedef struct {
 } FlutterTransformation;
 
 typedef void (*VoidCallback)(void* /* user data */);
+typedef bool (*BoolCallback)(void* /* user data */);
 
 typedef enum {
   /// Specifies an OpenGL texture target type. Textures are specified using
@@ -512,6 +513,13 @@ typedef struct {
   uint32_t name;
   /// The texture format (example GL_RGBA8).
   uint32_t format;
+  /// The pixel data buffer.
+  const uint8_t* buffer;
+  /// The size of pixel buffer.
+  size_t buffer_size;
+  /// Callback invoked that the gpu surface texture start binding.
+  BoolCallback bind_callback;
+
   /// User data to be returned on the invocation of the destruction callback.
   void* user_data;
   /// Callback invoked (on an engine managed thread) that asks the embedder to
@@ -605,7 +613,6 @@ typedef struct {
   uint32_t format;
 } FlutterOpenGLSurface;
 
-typedef bool (*BoolCallback)(void* /* user data */);
 typedef FlutterTransformation (*TransformationCallback)(void* /* user data */);
 typedef uint32_t (*UIntCallback)(void* /* user data */);
 typedef bool (*SoftwareSurfacePresentCallback)(void* /* user data */,
@@ -921,6 +928,9 @@ typedef void* FlutterVulkanQueueHandle;
 /// Alias for VkImage.
 typedef uint64_t FlutterVulkanImageHandle;
 
+/// Alias for VkDeviceMemory.
+typedef uint64_t FlutterVulkanDeviceMemoryHandle;
+
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterVulkanImage).
   size_t struct_size;
@@ -948,6 +958,36 @@ typedef FlutterVulkanImage (*FlutterVulkanImageCallback)(
 typedef bool (*FlutterVulkanPresentCallback)(
     void* /* user data */,
     const FlutterVulkanImage* /* image */);
+
+typedef struct {
+  /// Handle to the VkImage that is owned by the embedder. The engine will
+  /// bind this image for writing the frame.
+  FlutterVulkanImageHandle image;
+  /// The VkDeviceMemory that backs the iamge.
+  FlutterVulkanDeviceMemoryHandle image_memory;
+  /// The VkFormat of the image (for example: VK_FORMAT_R8G8B8A8_UNORM).
+  uint32_t format;
+  /// User data to be returned on the invocation of the destruction callback.
+  void* user_data;
+  /// Callback invoked (on an engine managed thread) that asks the embedder to
+  /// collect the texture.
+  VoidCallback destruction_callback;
+  /// Optional parameters for texture height/width, default is 0, non-zero means
+  /// the texture has the specified width/height.
+  /// Width of the texture.
+  size_t width;
+  /// Height of the texture.
+  size_t height;
+} FlutterVulkanTexture;
+
+/// Callback to provide an external texture for a given texture_id.
+/// See: external_texture_frame_callback.
+typedef bool (*FlutterVulkanTextureFrameCallback)(
+    void* /* user data */,
+    int64_t /* texture identifier */,
+    size_t /* width */,
+    size_t /* height */,
+    FlutterVulkanTexture* /* texture out */);
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterVulkanRendererConfig).
@@ -1012,7 +1052,11 @@ typedef struct {
   /// without any additional synchronization.
   /// Not used if a FlutterCompositor is supplied in FlutterProjectArgs.
   FlutterVulkanPresentCallback present_image_callback;
-
+  /// When the embedder specifies that a texture has a frame available, the
+  /// engine will call this method (on an internal engine managed thread) so
+  /// that external texture details can be supplied to the engine for subsequent
+  /// composition.
+  FlutterVulkanTextureFrameCallback external_texture_frame_callback;
 } FlutterVulkanRendererConfig;
 
 typedef struct {

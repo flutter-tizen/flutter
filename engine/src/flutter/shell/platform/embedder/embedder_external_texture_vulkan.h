@@ -2,50 +2,42 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
-#define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
+#ifndef FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_VULKAN_H_
+#define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_VULKAN_H_
 
 #include "flutter/common/graphics/texture.h"
 #include "flutter/fml/macros.h"
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/vk/VulkanTypes.h"
 #include "third_party/skia/include/core/SkSize.h"
 
 namespace flutter {
 
-class EmbedderExternalTextureGL : public flutter::Texture {
+class EmbedderExternalTextureVulkan : public flutter::Texture {
  public:
   using ExternalTextureCallback = std::function<
-      std::unique_ptr<FlutterOpenGLTexture>(int64_t, size_t, size_t)>;
+      std::unique_ptr<FlutterVulkanTexture>(int64_t, size_t, size_t)>;
+  EmbedderExternalTextureVulkan(int64_t texture_identifier,
+                                const ExternalTextureCallback& callback);
 
-  EmbedderExternalTextureGL(int64_t texture_identifier,
-                            const ExternalTextureCallback& callback);
-
-  ~EmbedderExternalTextureGL();
+  ~EmbedderExternalTextureVulkan();
 
  private:
   const ExternalTextureCallback& external_texture_callback_;
+
   sk_sp<DlImage> last_image_;
 
   sk_sp<DlImage> ResolveTexture(int64_t texture_id,
                                 GrDirectContext* context,
                                 impeller::AiksContext* aiks_context,
                                 const SkISize& size);
-
   sk_sp<DlImage> ResolveTextureSkia(int64_t texture_id,
                                     GrDirectContext* context,
                                     const SkISize& size);
-
   sk_sp<DlImage> ResolveTextureImpeller(int64_t texture_id,
                                         impeller::AiksContext* aiks_context,
                                         const SkISize& size);
-
-  sk_sp<DlImage> ResolveTextureImpellerPixelbuffer(
-      impeller::AiksContext* aiks_context,
-      std::unique_ptr<FlutterOpenGLTexture> texture);
-
-  sk_sp<DlImage> ResolveTextureImpellerSurface(
-      impeller::AiksContext* aiks_context,
-      std::unique_ptr<FlutterOpenGLTexture> texture);
 
   // |flutter::Texture|
   void Paint(PaintContext& context,
@@ -65,9 +57,8 @@ class EmbedderExternalTextureGL : public flutter::Texture {
   // |flutter::Texture|
   void OnTextureUnregistered() override;
 
-  FML_DISALLOW_COPY_AND_ASSIGN(EmbedderExternalTextureGL);
+  FML_DISALLOW_COPY_AND_ASSIGN(EmbedderExternalTextureVulkan);
 };
-
 }  // namespace flutter
 
-#endif  // FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
+#endif  // FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_VULKAN_H_
