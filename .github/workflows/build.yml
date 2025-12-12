@@ -269,7 +269,7 @@ jobs:
           if-no-files-found: error
 
   macos-intel-build:
-    runs-on: macos-13
+    runs-on: macos-15-intel
 
     strategy:
       matrix:
