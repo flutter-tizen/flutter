@@ -139,12 +139,10 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureImpeller(
     return nullptr;
   }
 
-  const auto& impeller_context =
+  auto& impeller_context =
       impeller::ContextVK::Cast(*aiks_context->GetContext());
-
   auto texture_source = std::make_shared<EmbedderExternalTextureSourceVulkan>(
       aiks_context->GetContext(), texture_desc.get());
-
   auto texture = std::make_shared<impeller::TextureVK>(
       aiks_context->GetContext(), texture_source);
   // Transition the layout to shader read.
@@ -152,7 +150,6 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureImpeller(
     auto buffer = impeller_context.CreateCommandBuffer();
     impeller::CommandBufferVK& buffer_vk =
         impeller::CommandBufferVK::Cast(*buffer);
-
     impeller::BarrierVK barrier;
     barrier.cmd_buffer = buffer_vk.GetCommandBuffer();
     barrier.src_access = impeller::vk::AccessFlagBits::eColorAttachmentWrite |
@@ -162,17 +159,16 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureImpeller(
         impeller::vk::PipelineStageFlagBits::eTransfer;
     barrier.dst_access = impeller::vk::AccessFlagBits::eShaderRead;
     barrier.dst_stage = impeller::vk::PipelineStageFlagBits::eFragmentShader;
-
     barrier.new_layout = impeller::vk::ImageLayout::eShaderReadOnlyOptimal;
 
-    if (!texture_source->SetLayout(barrier).ok()) {
+    if (!texture->SetLayout(barrier)) {
       return nullptr;
     }
     if (!impeller_context.GetCommandQueue()->Submit({buffer}).ok()) {
       return nullptr;
     }
   }
-
+  impeller_context.DisposeThreadLocalCachedResources();
   return impeller::DlImageImpeller::Make(texture);
 }
 
