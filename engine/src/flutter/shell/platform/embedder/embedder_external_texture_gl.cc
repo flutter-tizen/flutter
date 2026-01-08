@@ -150,6 +150,18 @@ std::shared_ptr<impeller::TextureGLES>
 EmbedderExternalTextureGL::CreateImpellerTexture(
     impeller::AiksContext* aiks_context,
     FlutterOpenGLTexture* texture) {
+  // Validate input parameters
+  if (texture->width <= 0 || texture->height <= 0) {
+    FML_LOG(ERROR) << "Invalid texture dimensions: " << texture->width << "x"
+                   << texture->height;
+    return nullptr;
+  }
+
+  if (texture->name == 0) {
+    FML_LOG(ERROR) << "Invalid texture name (0)";
+    return nullptr;
+  }
+
   desc_.size = impeller::ISize(texture->width, texture->height);
   desc_.storage_mode = impeller::StorageMode::kDevicePrivate;
   desc_.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
@@ -173,7 +185,9 @@ EmbedderExternalTextureGL::CreateImpellerTexture(
     if (texture->destruction_callback) {
       texture->destruction_callback(texture->user_data);
     }
-    FML_LOG(ERROR) << "Could not create external texture";
+    FML_LOG(ERROR) << "Could not create external texture with name: "
+                   << texture->name << ", size: " << texture->width << "x"
+                   << texture->height;
     return nullptr;
   }
 
@@ -185,7 +199,10 @@ EmbedderExternalTextureGL::CreateImpellerTexture(
           handle,
           [callback = texture->destruction_callback,
            user_data = texture->user_data]() { callback(user_data); })) {
-    FML_LOG(ERROR) << "Could not register destruction callback";
+    FML_LOG(ERROR) << "Could not register destruction callback for texture: "
+                   << texture->name;
+    // Clean up the texture since we couldn't register the callback
+    texture_image.reset();
     return nullptr;
   }
 
@@ -200,6 +217,15 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
       external_texture_callback_(texture_id, size.width(), size.height());
 
   if (!texture) {
+    FML_LOG(ERROR) << "External texture callback returned null for texture_id: "
+                   << texture_id;
+    return nullptr;
+  }
+
+  // Validate texture parameters
+  if (size.width() <= 0 || size.height() <= 0) {
+    FML_LOG(ERROR) << "Invalid texture size: " << size.width() << "x"
+                   << size.height();
     return nullptr;
   }
 
@@ -213,6 +239,8 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
   }
 
   if (texture_image_ == nullptr) {
+    FML_LOG(ERROR) << "Failed to create Impeller texture for texture_id: "
+                   << texture_id;
     return nullptr;
   }
 
