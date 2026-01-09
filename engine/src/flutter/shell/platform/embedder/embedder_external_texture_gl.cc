@@ -226,6 +226,9 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
   if (size.width() <= 0 || size.height() <= 0) {
     FML_LOG(ERROR) << "Invalid texture size: " << size.width() << "x"
                    << size.height();
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
     return nullptr;
   }
 
