@@ -130,10 +130,9 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureSkia(
 }
 
 bool EmbedderExternalTextureGL::IsExternalTextureChanged(
-    FlutterOpenGLTexture* texture,
-    impeller::TextureDescriptor& desc) {
-  if (static_cast<int64_t>(texture->width) != desc.size.width ||
-      static_cast<int64_t>(texture->height) != desc.size.height) {
+    FlutterOpenGLTexture* texture) {
+  if (static_cast<int64_t>(texture->width) != desc_.size.width ||
+      static_cast<int64_t>(texture->height) != desc_.size.height) {
     return true;
   }
 
@@ -243,7 +242,7 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
   if (!texture_image_) {
     texture_image_ = CreateImpellerTexture(aiks_context, texture.get());
   } else {
-    if (IsExternalTextureChanged(texture.get(), desc_)) {
+    if (IsExternalTextureChanged(texture.get())) {
       texture_image_.reset();
       texture_image_ = CreateImpellerTexture(aiks_context, texture.get());
     }
