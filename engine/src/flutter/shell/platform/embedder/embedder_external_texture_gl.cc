@@ -136,6 +136,10 @@ bool EmbedderExternalTextureGL::IsExternalTextureChanged(
     return true;
   }
 
+  if (!texture_image_) {
+    return true;
+  }
+
   auto handle = texture_image_->GetGLHandle();
   if (!handle.has_value()) {
     return true;
