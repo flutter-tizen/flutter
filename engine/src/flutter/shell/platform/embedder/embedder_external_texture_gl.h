@@ -41,7 +41,12 @@ class EmbedderExternalTextureGL : public flutter::Texture {
                                         impeller::AiksContext* aiks_context,
                                         const SkISize& size);
 
-  bool IsExternalTextureChanged(FlutterOpenGLTexture* texture);
+  bool ValidateTextureParameters(FlutterOpenGLTexture* texture,
+                                 const SkISize& size);
+
+  bool IsExternalTextureChanged(FlutterOpenGLTexture* texture,
+                                impeller::TextureDescriptor& desc);
+
   std::shared_ptr<impeller::TextureGLES> CreateImpellerTexture(
       impeller::AiksContext* aiks_context,
       FlutterOpenGLTexture* texture);

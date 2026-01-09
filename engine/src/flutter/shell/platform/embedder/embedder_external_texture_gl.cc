@@ -130,11 +130,13 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureSkia(
 }
 
 bool EmbedderExternalTextureGL::IsExternalTextureChanged(
-    FlutterOpenGLTexture* texture) {
-  if (static_cast<int64_t>(texture->width) != desc_.size.width ||
-      static_cast<int64_t>(texture->height) != desc_.size.height) {
+    FlutterOpenGLTexture* texture,
+    impeller::TextureDescriptor& desc) {
+  if (static_cast<int64_t>(texture->width) != desc.size.width ||
+      static_cast<int64_t>(texture->height) != desc.size.height) {
     return true;
   }
+
   auto handle = texture_image_->GetGLHandle();
   if (!handle.has_value()) {
     return true;
@@ -143,6 +145,7 @@ bool EmbedderExternalTextureGL::IsExternalTextureChanged(
   if (handle.value() != texture->name) {
     return true;
   }
+
   return false;
 }
 
@@ -150,25 +153,14 @@ std::shared_ptr<impeller::TextureGLES>
 EmbedderExternalTextureGL::CreateImpellerTexture(
     impeller::AiksContext* aiks_context,
     FlutterOpenGLTexture* texture) {
-  // Validate input parameters
-  if (texture->width <= 0 || texture->height <= 0) {
-    FML_LOG(ERROR) << "Invalid texture dimensions: " << texture->width << "x"
-                   << texture->height;
-    return nullptr;
-  }
-
-  if (texture->name == 0) {
-    FML_LOG(ERROR) << "Invalid texture name (0)";
-    return nullptr;
-  }
-
-  desc_.size = impeller::ISize(texture->width, texture->height);
-  desc_.storage_mode = impeller::StorageMode::kDevicePrivate;
-  desc_.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
+  impeller::TextureDescriptor desc;
+  desc.size = impeller::ISize(texture->width, texture->height);
+  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
+  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
   if (texture->target == GL_TEXTURE_EXTERNAL_OES) {
-    desc_.type = impeller::TextureType::kTextureExternalOES;
+    desc.type = impeller::TextureType::kTextureExternalOES;
   } else {
-    desc_.type = impeller::TextureType::kTexture2D;
+    desc.type = impeller::TextureType::kTexture2D;
   }
 
   impeller::ContextGLES& context =
@@ -177,11 +169,9 @@ EmbedderExternalTextureGL::CreateImpellerTexture(
       impeller::HandleType::kTexture, texture->name);
 
   std::shared_ptr<impeller::TextureGLES> texture_image =
-      impeller::TextureGLES::WrapTexture(context.GetReactor(), desc_, handle);
+      impeller::TextureGLES::WrapTexture(context.GetReactor(), desc, handle);
 
   if (!texture_image) {
-    // In case Skia rejects the image, call the release proc so that
-    // embedders can perform collection of intermediates.
     if (texture->destruction_callback) {
       texture->destruction_callback(texture->user_data);
     }
@@ -194,19 +184,43 @@ EmbedderExternalTextureGL::CreateImpellerTexture(
   texture_image->SetCoordinateSystem(
       impeller::TextureCoordinateSystem::kUploadFromHost);
 
-  if (texture->destruction_callback &&
-      !context.GetReactor()->RegisterCleanupCallback(
-          handle,
-          [callback = texture->destruction_callback,
-           user_data = texture->user_data]() { callback(user_data); })) {
-    FML_LOG(ERROR) << "Could not register destruction callback for texture: "
-                   << texture->name;
-    // Clean up the texture since we couldn't register the callback
-    texture_image.reset();
-    return nullptr;
+  if (texture->destruction_callback) {
+    if (!context.GetReactor()->RegisterCleanupCallback(
+            handle,
+            [callback = texture->destruction_callback,
+             user_data = texture->user_data]() { callback(user_data); })) {
+      FML_LOG(ERROR) << "Could not register destruction callback for texture: "
+                     << texture->name;
+      texture_image.reset();
+      return nullptr;
+    }
   }
 
+  desc_ = desc;
   return texture_image;
+}
+
+bool EmbedderExternalTextureGL::ValidateTextureParameters(
+    FlutterOpenGLTexture* texture,
+    const SkISize& size) {
+  if (size.width() <= 0 || size.height() <= 0) {
+    FML_LOG(ERROR) << "Invalid texture size: " << size.width() << "x"
+                   << size.height();
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    return false;
+  }
+
+  if (texture->name == 0) {
+    FML_LOG(ERROR) << "Invalid texture name (0)";
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    return false;
+  }
+
+  return true;
 }
 
 sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
@@ -222,20 +236,14 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     return nullptr;
   }
 
-  // Validate texture parameters
-  if (size.width() <= 0 || size.height() <= 0) {
-    FML_LOG(ERROR) << "Invalid texture size: " << size.width() << "x"
-                   << size.height();
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
-    }
+  if (!ValidateTextureParameters(texture.get(), size)) {
     return nullptr;
   }
 
-  if (texture_image_ == nullptr) {
+  if (!texture_image_) {
     texture_image_ = CreateImpellerTexture(aiks_context, texture.get());
   } else {
-    if (IsExternalTextureChanged(texture.get())) {
+    if (IsExternalTextureChanged(texture.get(), desc_)) {
       texture_image_.reset();
       texture_image_ = CreateImpellerTexture(aiks_context, texture.get());
     }
