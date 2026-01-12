@@ -5,9 +5,11 @@
 #ifndef FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
 
+#include <unordered_map>
 #include "flutter/common/graphics/texture.h"
 #include "flutter/fml/macros.h"
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "impeller/renderer/backend/gles/texture_gles.h"
 #include "third_party/skia/include/core/SkSize.h"
 
 namespace flutter {
@@ -25,7 +27,8 @@ class EmbedderExternalTextureGL : public flutter::Texture {
  private:
   const ExternalTextureCallback& external_texture_callback_;
   sk_sp<DlImage> last_image_;
-
+  std::unordered_map<GLuint, std::shared_ptr<impeller::TextureGLES>>
+      impeller_gl_textures_;
   sk_sp<DlImage> ResolveTexture(int64_t texture_id,
                                 GrDirectContext* context,
                                 impeller::AiksContext* aiks_context,
@@ -38,14 +41,6 @@ class EmbedderExternalTextureGL : public flutter::Texture {
   sk_sp<DlImage> ResolveTextureImpeller(int64_t texture_id,
                                         impeller::AiksContext* aiks_context,
                                         const SkISize& size);
-
-  sk_sp<DlImage> ResolveTextureImpellerPixelbuffer(
-      impeller::AiksContext* aiks_context,
-      std::unique_ptr<FlutterOpenGLTexture> texture);
-
-  sk_sp<DlImage> ResolveTextureImpellerSurface(
-      impeller::AiksContext* aiks_context,
-      std::unique_ptr<FlutterOpenGLTexture> texture);
 
   // |flutter::Texture|
   void Paint(PaintContext& context,
