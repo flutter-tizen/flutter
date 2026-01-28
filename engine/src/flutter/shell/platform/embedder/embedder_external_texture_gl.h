@@ -5,6 +5,8 @@
 #ifndef FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_EXTERNAL_TEXTURE_GL_H_
 
+#include <list>
+#include <memory>
 #include <unordered_map>
 #include "flutter/common/graphics/texture.h"
 #include "flutter/fml/macros.h"
@@ -13,6 +15,47 @@
 #include "third_party/skia/include/core/SkSize.h"
 
 namespace flutter {
+static constexpr size_t kTextureMaxSize = 6u;
+
+class TextureLRU {
+ public:
+  struct Data {
+    GLuint key = 0u;
+    std::shared_ptr<impeller::TextureGLES> value;
+    size_t width = 0;
+    size_t height = 0;
+  };
+
+  TextureLRU() = default;
+
+  ~TextureLRU() = default;
+
+  /// @brief Retrieve the Texture associated with the given [key], or nullptr.
+  std::optional<Data> FindTexture(std::optional<GLuint> key);
+
+  /// @brief Add a new texture to the cache with a key, returning the key of the
+  ///        LRU entry that was removed.
+  ///
+  /// The value may be `0`, in which case nothing was removed.
+  GLuint AddTexture(const std::shared_ptr<impeller::TextureGLES>& texture,
+                    GLuint key,
+                    size_t width,
+                    size_t height);
+
+  /// @brief Remove all entires from the image cache.
+  void Clear();
+
+  /// @brief Remove a texture from the cache by key.
+  void RemoveTexture(GLuint key);
+  /// @brief Marks [key] as the most recently used.
+  void UpdateTexture(const std::shared_ptr<impeller::TextureGLES>& texture,
+                     GLuint key,
+                     size_t width,
+                     size_t height);
+
+ private:
+  std::array<Data, kTextureMaxSize> textures_;
+};
 
 class EmbedderExternalTextureGL : public flutter::Texture {
  public:
@@ -27,8 +70,7 @@ class EmbedderExternalTextureGL : public flutter::Texture {
  private:
   const ExternalTextureCallback& external_texture_callback_;
   sk_sp<DlImage> last_image_;
-  std::unordered_map<GLuint, std::shared_ptr<impeller::TextureGLES>>
-      impeller_gl_textures_;
+  TextureLRU texture_lru_ = TextureLRU();
   sk_sp<DlImage> ResolveTexture(int64_t texture_id,
                                 GrDirectContext* context,
                                 impeller::AiksContext* aiks_context,
@@ -41,6 +83,10 @@ class EmbedderExternalTextureGL : public flutter::Texture {
   sk_sp<DlImage> ResolveTextureImpeller(int64_t texture_id,
                                         impeller::AiksContext* aiks_context,
                                         const SkISize& size);
+
+  std::shared_ptr<impeller::TextureGLES> CreateTextureGLES(
+      impeller::AiksContext* aiks_context,
+      FlutterOpenGLTexture* texture);
 
   // |flutter::Texture|
   void Paint(PaintContext& context,
