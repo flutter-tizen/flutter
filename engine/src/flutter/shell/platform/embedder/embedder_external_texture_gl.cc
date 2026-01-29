@@ -36,57 +36,47 @@ std::optional<TextureLRU::Data> TextureLRU::FindTexture(
   for (size_t i = 0u; i < kTextureMaxSize; i++) {
     if (textures_[i].key == key_value) {
       auto result = textures_[i].value;
-      UpdateTexture(result, key_value, textures_[i].width, textures_[i].height);
+      UpdateTexture(Data{.key = key_value,
+                         .value = result,
+                         .width = textures_[i].width,
+                         .height = textures_[i].height});
       return std::make_optional(textures_[i]);
     }
   }
   return std::nullopt;
 }
 
-void TextureLRU::UpdateTexture(
-    const std::shared_ptr<impeller::TextureGLES>& texture,
-    GLuint key,
-    size_t width,
-    size_t height) {
-  if (textures_[0].key == key) {
-    textures_[0].value = texture;
-    textures_[0].width = width;
-    textures_[0].height = height;
+void TextureLRU::UpdateTexture(Data data) {
+  if (textures_[0].key == data.key) {
+    textures_[0] = data;
     return;
   }
   size_t i = 1u;
   for (; i < kTextureMaxSize; i++) {
-    if (textures_[i].key == key) {
+    if (textures_[i].key == data.key) {
       break;
     }
   }
   for (auto j = i; j > 0; j--) {
     textures_[j] = textures_[j - 1];
   }
-  textures_[0] =
-      Data{.key = key, .value = texture, .width = width, .height = height};
+  textures_[0] = data;
 }
 
-GLuint TextureLRU::AddTexture(
-    const std::shared_ptr<impeller::TextureGLES>& texture,
-    GLuint key,
-    size_t width,
-    size_t height) {
+GLuint TextureLRU::AddTexture(Data data) {
   GLuint lru_key = textures_[kTextureMaxSize - 1].key;
   bool updated_image = false;
   for (size_t i = 0u; i < kTextureMaxSize; i++) {
     if (textures_[i].key == lru_key) {
       updated_image = true;
-      textures_[i] =
-          Data{.key = key, .value = texture, .width = width, .height = height};
+      textures_[i] = data;
       break;
     }
   }
   if (!updated_image) {
-    textures_[0] =
-        Data{.key = key, .value = texture, .width = width, .height = height};
+    textures_[0] = data;
   }
-  UpdateTexture(texture, key, width, height);
+  UpdateTexture(data);
   return lru_key;
 }
 
@@ -104,17 +94,14 @@ void TextureLRU::RemoveTexture(GLuint key) {
     }
   }
 
-  // If key not found, return
   if (i == kTextureMaxSize) {
     return;
   }
 
-  // Shift all entries after the found entry down by one position
   for (; i < kTextureMaxSize - 1; i++) {
     textures_[i] = textures_[i + 1];
   }
 
-  // Clear the last entry
   textures_[kTextureMaxSize - 1] = Data{.key = 0u, .value = nullptr};
 }
 
@@ -295,8 +282,11 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     std::shared_ptr<impeller::TextureGLES> new_gles_texture =
         CreateTextureGLES(aiks_context, texture.get());
     if (new_gles_texture) {
-      texture_lru_.UpdateTexture(new_gles_texture, texture->name, texture->width,
-                                 texture->height);
+      texture_lru_.UpdateTexture(TextureLRU::Data{.key = texture->name,
+                                                  .value = new_gles_texture,
+                                                  .width = texture->width,
+                                                  .height = texture->height});
+
       return impeller::DlImageImpeller::Make(new_gles_texture);
     } else {
       texture_lru_.RemoveTexture(texture->name);
@@ -306,8 +296,10 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     std::shared_ptr<impeller::TextureGLES> new_gles_texture =
         CreateTextureGLES(aiks_context, texture.get());
     if (new_gles_texture) {
-      texture_lru_.AddTexture(new_gles_texture, texture->name, texture->width,
-                              texture->height);
+      texture_lru_.AddTexture(TextureLRU::Data{.key = texture->name,
+                                               .value = new_gles_texture,
+                                               .width = texture->width,
+                                               .height = texture->height});
       return impeller::DlImageImpeller::Make(new_gles_texture);
     } else {
       return nullptr;

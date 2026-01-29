@@ -37,21 +37,16 @@ class TextureLRU {
   ///        LRU entry that was removed.
   ///
   /// The value may be `0`, in which case nothing was removed.
-  GLuint AddTexture(const std::shared_ptr<impeller::TextureGLES>& texture,
-                    GLuint key,
-                    size_t width,
-                    size_t height);
+  GLuint AddTexture(Data data);
 
   /// @brief Remove all entires from the image cache.
   void Clear();
 
   /// @brief Remove a texture from the cache by key.
   void RemoveTexture(GLuint key);
+
   /// @brief Marks [key] as the most recently used.
-  void UpdateTexture(const std::shared_ptr<impeller::TextureGLES>& texture,
-                     GLuint key,
-                     size_t width,
-                     size_t height);
+  void UpdateTexture(Data data);
 
  private:
   std::array<Data, kTextureMaxSize> textures_;
