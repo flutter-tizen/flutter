@@ -35,9 +35,8 @@ std::optional<TextureLRU::Data> TextureLRU::FindTexture(
   auto key_value = key.value();
   for (size_t i = 0u; i < kTextureMaxSize; i++) {
     if (textures_[i].key == key_value) {
-      auto result = textures_[i].value;
       UpdateTexture(Data{.key = key_value,
-                         .value = result,
+                         .texture = textures_[i].texture,
                          .width = textures_[i].width,
                          .height = textures_[i].height});
       return std::make_optional(textures_[i]);
@@ -57,6 +56,11 @@ void TextureLRU::UpdateTexture(Data data) {
       break;
     }
   }
+
+  if (i == kTextureMaxSize) {
+    return;
+  }
+
   for (auto j = i; j > 0; j--) {
     textures_[j] = textures_[j - 1];
   }
@@ -82,7 +86,7 @@ GLuint TextureLRU::AddTexture(Data data) {
 
 void TextureLRU::Clear() {
   for (size_t i = 0u; i < kTextureMaxSize; i++) {
-    textures_[i] = Data{.key = 0u, .value = nullptr};
+    textures_[i] = Data{.key = 0u, .texture = nullptr};
   }
 }
 
@@ -102,7 +106,7 @@ void TextureLRU::RemoveTexture(GLuint key) {
     textures_[i] = textures_[i + 1];
   }
 
-  textures_[kTextureMaxSize - 1] = Data{.key = 0u, .value = nullptr};
+  textures_[kTextureMaxSize - 1] = Data{.key = 0u, .texture = nullptr};
 }
 
 EmbedderExternalTextureGL::EmbedderExternalTextureGL(
@@ -274,16 +278,16 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
   }
 
   if (texture_data.has_value() && !size_change) {
-    return impeller::DlImageImpeller::Make(texture_data.value().value);
+    return impeller::DlImageImpeller::Make(texture_data.value().texture);
   } else if (texture_data.has_value() && size_change) {
     std::shared_ptr<impeller::TextureGLES> old_gles_texture =
-        texture_data.value().value;
+        texture_data.value().texture;
     old_gles_texture->Leak();
     std::shared_ptr<impeller::TextureGLES> new_gles_texture =
         CreateTextureGLES(aiks_context, texture.get());
     if (new_gles_texture) {
       texture_lru_.UpdateTexture(TextureLRU::Data{.key = texture->name,
-                                                  .value = new_gles_texture,
+                                                  .texture = new_gles_texture,
                                                   .width = texture->width,
                                                   .height = texture->height});
 
@@ -297,7 +301,7 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
         CreateTextureGLES(aiks_context, texture.get());
     if (new_gles_texture) {
       texture_lru_.AddTexture(TextureLRU::Data{.key = texture->name,
-                                               .value = new_gles_texture,
+                                               .texture = new_gles_texture,
                                                .width = texture->width,
                                                .height = texture->height});
       return impeller::DlImageImpeller::Make(new_gles_texture);

@@ -21,7 +21,7 @@ class TextureLRU {
  public:
   struct Data {
     GLuint key = 0u;
-    std::shared_ptr<impeller::TextureGLES> value;
+    std::shared_ptr<impeller::TextureGLES> texture;
     size_t width = 0;
     size_t height = 0;
   };
