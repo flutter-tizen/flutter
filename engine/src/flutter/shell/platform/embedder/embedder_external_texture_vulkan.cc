@@ -139,7 +139,7 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureImpeller(
     return nullptr;
   }
 
-  const auto& impeller_context =
+  auto& impeller_context =
       impeller::ContextVK::Cast(*aiks_context->GetContext());
 
   auto texture_source = std::make_shared<EmbedderExternalTextureSourceVulkan>(
@@ -172,7 +172,7 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureImpeller(
       return nullptr;
     }
   }
-
+  impeller_context.DisposeThreadLocalCachedResources();
   return impeller::DlImageImpeller::Make(texture);
 }
 
