@@ -27,6 +27,88 @@
 
 namespace flutter {
 
+std::optional<TextureLRU::Data> TextureLRU::FindTexture(
+    std::optional<GLuint> key) {
+  if (!key.has_value()) {
+    return std::nullopt;
+  }
+  auto key_value = key.value();
+  for (size_t i = 0u; i < kTextureMaxSize; i++) {
+    if (textures_[i].key == key_value) {
+      UpdateTexture(Data{.key = key_value,
+                         .texture = textures_[i].texture,
+                         .width = textures_[i].width,
+                         .height = textures_[i].height});
+      return std::make_optional(textures_[i]);
+    }
+  }
+  return std::nullopt;
+}
+
+void TextureLRU::UpdateTexture(Data data) {
+  if (textures_[0].key == data.key) {
+    textures_[0] = data;
+    return;
+  }
+  size_t i = 1u;
+  for (; i < kTextureMaxSize; i++) {
+    if (textures_[i].key == data.key) {
+      break;
+    }
+  }
+
+  if (i == kTextureMaxSize) {
+    return;
+  }
+
+  for (auto j = i; j > 0; j--) {
+    textures_[j] = textures_[j - 1];
+  }
+  textures_[0] = data;
+}
+
+GLuint TextureLRU::AddTexture(Data data) {
+  GLuint lru_key = textures_[kTextureMaxSize - 1].key;
+  bool updated_image = false;
+  for (size_t i = 0u; i < kTextureMaxSize; i++) {
+    if (textures_[i].key == lru_key) {
+      updated_image = true;
+      textures_[i] = data;
+      break;
+    }
+  }
+  if (!updated_image) {
+    textures_[0] = data;
+  }
+  UpdateTexture(data);
+  return lru_key;
+}
+
+void TextureLRU::Clear() {
+  for (size_t i = 0u; i < kTextureMaxSize; i++) {
+    textures_[i] = Data{.key = 0u, .texture = nullptr};
+  }
+}
+
+void TextureLRU::RemoveTexture(GLuint key) {
+  size_t i = 0u;
+  for (; i < kTextureMaxSize; i++) {
+    if (textures_[i].key == key) {
+      break;
+    }
+  }
+
+  if (i == kTextureMaxSize) {
+    return;
+  }
+
+  for (; i < kTextureMaxSize - 1; i++) {
+    textures_[i] = textures_[i + 1];
+  }
+
+  textures_[kTextureMaxSize - 1] = Data{.key = 0u, .texture = nullptr};
+}
+
 EmbedderExternalTextureGL::EmbedderExternalTextureGL(
     int64_t texture_identifier,
     const ExternalTextureCallback& callback)
@@ -129,6 +211,50 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureSkia(
   return DlImage::Make(std::move(image));
 }
 
+std::shared_ptr<impeller::TextureGLES>
+EmbedderExternalTextureGL::CreateTextureGLES(
+    impeller::AiksContext* aiks_context,
+    FlutterOpenGLTexture* texture) {
+  impeller::TextureDescriptor desc;
+  desc.size = impeller::ISize(texture->width, texture->height);
+  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
+  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
+  if (texture->target == GL_TEXTURE_EXTERNAL_OES) {
+    desc.type = impeller::TextureType::kTextureExternalOES;
+  } else {
+    desc.type = impeller::TextureType::kTexture2D;
+  }
+  impeller::ContextGLES& context =
+      impeller::ContextGLES::Cast(*aiks_context->GetContext());
+  impeller::HandleGLES handle = context.GetReactor()->CreateHandle(
+      impeller::HandleType::kTexture, texture->name);
+
+  auto gles_texture =
+      impeller::TextureGLES::WrapTexture(context.GetReactor(), desc, handle);
+  if (!gles_texture) {
+    // In case Skia rejects the image, call the release proc so that
+    // embedders can perform collection of intermediates.
+    if (texture->destruction_callback) {
+      texture->destruction_callback(texture->user_data);
+    }
+    FML_LOG(ERROR) << "Could not create external texture";
+    return nullptr;
+  }
+
+  gles_texture->SetCoordinateSystem(
+      impeller::TextureCoordinateSystem::kUploadFromHost);
+
+  if (texture->destruction_callback &&
+      !context.GetReactor()->RegisterCleanupCallback(
+          handle,
+          [callback = texture->destruction_callback,
+           user_data = texture->user_data]() { callback(user_data); })) {
+    FML_LOG(ERROR) << "Could not register destruction callback";
+    return nullptr;
+  }
+  return gles_texture;
+}
+
 sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     int64_t texture_id,
     impeller::AiksContext* aiks_context,
@@ -140,96 +266,49 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(
     return nullptr;
   }
 
-  if (texture->bind_callback != nullptr) {
-    return ResolveTextureImpellerSurface(aiks_context, std::move(texture));
+  std::optional<TextureLRU::Data> texture_data =
+      texture_lru_.FindTexture(texture->name);
+
+  bool size_change = false;
+
+  if (texture_data.has_value() &&
+      (texture_data.value().width != texture->width ||
+       texture_data.value().height != texture->height)) {
+    size_change = true;
+  }
+
+  if (texture_data.has_value() && !size_change) {
+    return impeller::DlImageImpeller::Make(texture_data.value().texture);
+  } else if (texture_data.has_value() && size_change) {
+    std::shared_ptr<impeller::TextureGLES> old_gles_texture =
+        texture_data.value().texture;
+    old_gles_texture->Leak();
+    std::shared_ptr<impeller::TextureGLES> new_gles_texture =
+        CreateTextureGLES(aiks_context, texture.get());
+    if (new_gles_texture) {
+      texture_lru_.UpdateTexture(TextureLRU::Data{.key = texture->name,
+                                                  .texture = new_gles_texture,
+                                                  .width = texture->width,
+                                                  .height = texture->height});
+
+      return impeller::DlImageImpeller::Make(new_gles_texture);
+    } else {
+      texture_lru_.RemoveTexture(texture->name);
+      return nullptr;
+    }
   } else {
-    return ResolveTextureImpellerPixelbuffer(aiks_context, std::move(texture));
-  }
-}
-
-sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpellerPixelbuffer(
-    impeller::AiksContext* aiks_context,
-    std::unique_ptr<FlutterOpenGLTexture> texture) {
-  impeller::TextureDescriptor desc;
-  desc.size = impeller::ISize(texture->width, texture->height);
-  desc.type = impeller::TextureType::kTexture2D;
-  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
-  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
-  impeller::ContextGLES& context =
-      impeller::ContextGLES::Cast(*aiks_context->GetContext());
-  std::shared_ptr<impeller::TextureGLES> image =
-      std::make_shared<impeller::TextureGLES>(context.GetReactor(), desc);
-
-  image->MarkContentsInitialized();
-  if (!image->SetContents(texture->buffer, texture->buffer_size)) {
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
+    std::shared_ptr<impeller::TextureGLES> new_gles_texture =
+        CreateTextureGLES(aiks_context, texture.get());
+    if (new_gles_texture) {
+      texture_lru_.AddTexture(TextureLRU::Data{.key = texture->name,
+                                               .texture = new_gles_texture,
+                                               .width = texture->width,
+                                               .height = texture->height});
+      return impeller::DlImageImpeller::Make(new_gles_texture);
+    } else {
+      return nullptr;
     }
-    return nullptr;
   }
-
-  if (!image) {
-    // In case Skia rejects the image, call the release proc so that
-    // embedders can perform collection of intermediates.
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
-    }
-    FML_LOG(ERROR) << "Could not create external texture";
-    return nullptr;
-  }
-
-  if (texture->destruction_callback) {
-    texture->destruction_callback(texture->user_data);
-  }
-
-  return impeller::DlImageImpeller::Make(image);
-}
-
-sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpellerSurface(
-    impeller::AiksContext* aiks_context,
-    std::unique_ptr<FlutterOpenGLTexture> texture) {
-  impeller::TextureDescriptor desc;
-  desc.size = impeller::ISize(texture->width, texture->height);
-  desc.storage_mode = impeller::StorageMode::kDevicePrivate;
-  desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
-  desc.type = impeller::TextureType::kTextureExternalOES;
-  impeller::ContextGLES& context =
-      impeller::ContextGLES::Cast(*aiks_context->GetContext());
-  std::shared_ptr<impeller::TextureGLES> image =
-      std::make_shared<impeller::TextureGLES>(context.GetReactor(), desc);
-  image->MarkContentsInitialized();
-  image->SetCoordinateSystem(
-      impeller::TextureCoordinateSystem::kUploadFromHost);
-  if (!image->Bind()) {
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
-    }
-    FML_LOG(ERROR) << "Could not bind texture";
-    return nullptr;
-  }
-
-  if (!image) {
-    // In case Skia rejects the image, call the release proc so that
-    // embedders can perform collection of intermediates.
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
-    }
-    FML_LOG(ERROR) << "Could not create external texture";
-    return nullptr;
-  }
-
-  if (!texture->bind_callback(texture->user_data)) {
-    if (texture->destruction_callback) {
-      texture->destruction_callback(texture->user_data);
-    }
-    return nullptr;
-  }
-
-  if (texture->destruction_callback) {
-    texture->destruction_callback(texture->user_data);
-  }
-
-  return impeller::DlImageImpeller::Make(image);
 }
 
 // |flutter::Texture|
@@ -244,6 +323,8 @@ void EmbedderExternalTextureGL::MarkNewFrameAvailable() {
 }
 
 // |flutter::Texture|
-void EmbedderExternalTextureGL::OnTextureUnregistered() {}
+void EmbedderExternalTextureGL::OnTextureUnregistered() {
+  texture_lru_.Clear();
+}
 
 }  // namespace flutter
