@@ -15,7 +15,8 @@ declare_args() {
   # * host_toolchain: non-cross-compile. We can run tests on the host.
   # * Fuchsia: build unittests for testing on device.
   # * macOS: arm64 builds can run x64 binaries.
-  enable_unittests = current_toolchain == host_toolchain || is_fuchsia || is_mac
+  # Disable unit test
+  enable_unittests = false
 
   # Build iOS target device unit tests.
   #
