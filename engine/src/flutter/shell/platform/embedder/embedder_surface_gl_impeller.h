@@ -30,7 +30,8 @@ class EmbedderSurfaceGLImpeller final : public EmbedderSurface,
   EmbedderSurfaceGLImpeller(
       EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table,
       bool fbo_reset_after_present,
-      std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder);
+      std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
+      fml::RefPtr<fml::TaskRunner> io_task_runner);
 
   ~EmbedderSurfaceGLImpeller() override;
 
