@@ -49,6 +49,7 @@ class PipelineCompileQueue
   explicit PipelineCompileQueue(
       std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
   PipelineCompileQueue() = default;
+  PipelineCompileQueue(bool wait_until_rendering);
 
   virtual ~PipelineCompileQueue();
 
@@ -86,6 +87,13 @@ class PipelineCompileQueue
   ///             runners.
   ///
   virtual void PostJob(const fml::closure& job) = 0;
+
+  bool WaitUntilRendering() { return wait_until_rendering_; };
+
+  void FlushPendingJobs();
+
+ protected:
+  bool wait_until_rendering_ = false;
 
  private:
   Mutex pending_jobs_mutex_;
