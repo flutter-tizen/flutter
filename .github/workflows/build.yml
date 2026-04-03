@@ -148,7 +148,7 @@ jobs:
 
     strategy:
       matrix:
-        arch: [arm, arm64]
+        arch: [arm, arm64, x64]
         mode: [release, profile]
 
     steps:
@@ -326,7 +326,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build, macos-build, macos-intel-build]
+    needs: [build, windows-build, macos-build, macos-intel-build]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
 
