@@ -20,6 +20,9 @@ toolchain("custom") {
 
   target_triple_flags = "--target=${custom_target_triple}"
   sysroot_flags = "--sysroot ${custom_sysroot}"
+  syscall_compat_header =
+      rebase_path("//build/toolchain/custom/tizen_syscall_compat.h", root_build_dir)
+  syscall_compat_flags = "-include ${syscall_compat_header}"
 
   custom_lib_flags = "-L${custom_toolchain}/lib"
 
@@ -29,7 +32,7 @@ toolchain("custom") {
 
   tool("cc") {
     depfile = "{{output}}.d"
-    command = "$cc -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
+    command = "$cc -MD -MF $depfile $target_triple_flags $sysroot_flags $syscall_compat_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
     depsformat = "gcc"
     description = "CC {{output}}"
     outputs =
@@ -38,7 +41,7 @@ toolchain("custom") {
 
   tool("cxx") {
     depfile = "{{output}}.d"
-    command = "$cxx -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} -c {{source}} -o {{output}}"
+    command = "$cxx -MD -MF $depfile $target_triple_flags $sysroot_flags $syscall_compat_flags {{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} -c {{source}} -o {{output}}"
     depsformat = "gcc"
     description = "CXX {{output}}"
     outputs =
@@ -47,7 +50,7 @@ toolchain("custom") {
 
   tool("asm") {
     depfile = "{{output}}.d"
-    command = "$cc -MD -MF $depfile $target_triple_flags $sysroot_flags {{defines}} {{include_dirs}} {{asmflags}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
+    command = "$cc -MD -MF $depfile $target_triple_flags $sysroot_flags $syscall_compat_flags {{defines}} {{include_dirs}} {{asmflags}} {{cflags}} {{cflags_c}} -c {{source}} -o {{output}}"
     depsformat = "gcc"
     description = "ASM {{output}}"
     outputs =
