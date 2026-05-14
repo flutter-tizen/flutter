@@ -112,6 +112,10 @@ class PipelineCompileQueue
   void DoOneJob();
 
   void FinishAllJobs();
+
+  void ProcessJobsSequentially();
+
+  bool HasPendingJobs();
 };
 
 }  // namespace impeller
