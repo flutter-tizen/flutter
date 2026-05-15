@@ -49,7 +49,6 @@ class PipelineCompileQueue
   explicit PipelineCompileQueue(
       std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
   PipelineCompileQueue() = default;
-  PipelineCompileQueue(bool wait_until_rendering);
 
   virtual ~PipelineCompileQueue();
 
@@ -66,8 +65,8 @@ class PipelineCompileQueue
   /// @return     If the job was successfully posted to the parallel task
   /// runners.
   ///
-  bool PostJobForDescriptor(const PipelineDescriptor& desc,
-                            const fml::closure& job);
+  virtual bool PostJobForDescriptor(const PipelineDescriptor& desc,
+                                    const fml::closure& job) = 0;
 
   //----------------------------------------------------------------------------
   /// @brief      If the task has not yet been done, perform it eagerly on the
@@ -88,34 +87,38 @@ class PipelineCompileQueue
   ///
   virtual void PostJob(const fml::closure& job) = 0;
 
-  bool WaitUntilRendering() { return wait_until_rendering_; };
-
-  void FlushPendingJobs();
+  void DoOneJob();
 
  protected:
-  std::atomic<bool> wait_until_rendering_ = false;
+  //----------------------------------------------------------------------------
+  /// @brief      Add a job to the pending jobs map.
+  ///
+  /// @param[in]  desc  The pipeline descriptor.
+  /// @param[in]  job   The job to add.
+  ///
+  /// @return     true if the job was successfully inserted, false if a job
+  ///             for the same descriptor already exists.
+  ///
+  bool AddJob(const PipelineDescriptor& desc, const fml::closure& job);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Check if there are any pending jobs.
+  ///
+  /// @return     true if there are pending jobs, false otherwise.
+  ///
+  bool HasPendingJobs();
 
  private:
   Mutex pending_jobs_mutex_;
-  size_t priorities_elevated_ = {};
-
   std::unordered_map<PipelineDescriptor,
                      fml::closure,
                      ComparableHash<PipelineDescriptor>,
                      ComparableEqual<PipelineDescriptor>>
       pending_jobs_ IPLR_GUARDED_BY(pending_jobs_mutex_);
-
+  size_t priorities_elevated_ = {};
   fml::closure TakeJob(const PipelineDescriptor& desc);
-
   fml::closure TakeNextJob();
-
-  void DoOneJob();
-
   void FinishAllJobs();
-
-  void ProcessJobsSequentially();
-
-  bool HasPendingJobs();
 };
 
 }  // namespace impeller
