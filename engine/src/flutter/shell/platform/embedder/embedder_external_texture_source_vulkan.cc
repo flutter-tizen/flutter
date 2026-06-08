@@ -33,6 +33,10 @@ EmbedderExternalTextureSourceVulkan::EmbedderExternalTextureSourceVulkan(
     : TextureSourceVK(ToTextureDescriptor(embedder_desc)),
       destruction_callback_(embedder_desc->destruction_callback),
       destruction_callback_user_data_(embedder_desc->user_data) {
+  if (!embedder_desc->image) {
+    VALIDATION_LOG << "Vulkan image handle is null";
+    return;
+  }
   const auto& context = impeller::ContextVK::Cast(*p_context);
   const auto& device = context.GetDevice();
   texture_image_ =
