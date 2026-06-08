@@ -30,7 +30,9 @@ bool RequiresYCBCRConversion(impeller::vk::Format format) {
 EmbedderExternalTextureSourceVulkan::EmbedderExternalTextureSourceVulkan(
     const std::shared_ptr<impeller::Context>& p_context,
     FlutterVulkanTexture* embedder_desc)
-    : TextureSourceVK(ToTextureDescriptor(embedder_desc)) {
+    : TextureSourceVK(ToTextureDescriptor(embedder_desc)),
+      destruction_callback_(embedder_desc->destruction_callback),
+      destruction_callback_user_data_(embedder_desc->user_data) {
   const auto& context = impeller::ContextVK::Cast(*p_context);
   const auto& device = context.GetDevice();
   texture_image_ =
@@ -166,8 +168,12 @@ bool EmbedderExternalTextureSourceVulkan::CreateTextureImageView(
 }
 
 // |TextureSourceVK|
-EmbedderExternalTextureSourceVulkan::~EmbedderExternalTextureSourceVulkan() =
-    default;
+EmbedderExternalTextureSourceVulkan::~EmbedderExternalTextureSourceVulkan() {
+  texture_image_view_.reset();
+  if (destruction_callback_) {
+    destruction_callback_(destruction_callback_user_data_);
+  }
+}
 
 bool EmbedderExternalTextureSourceVulkan::IsValid() const {
   return is_valid_;
