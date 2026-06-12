@@ -42,12 +42,6 @@ namespace impeller {
 class PipelineCompileQueue
     : public std::enable_shared_from_this<PipelineCompileQueue> {
  public:
-  static std::shared_ptr<PipelineCompileQueue> Create(
-      std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
-
-  explicit PipelineCompileQueue(
-      std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
-
   PipelineCompileQueue() = default;
 
   virtual ~PipelineCompileQueue();
