@@ -45,9 +45,9 @@ class PipelineCompileQueue
   static std::shared_ptr<PipelineCompileQueue> Create(
       std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
 
-  ~PipelineCompileQueue();
   explicit PipelineCompileQueue(
       std::shared_ptr<fml::BasicTaskRunner> worker_task_runner);
+
   PipelineCompileQueue() = default;
 
   virtual ~PipelineCompileQueue();
