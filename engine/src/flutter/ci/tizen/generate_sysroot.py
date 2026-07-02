@@ -41,10 +41,10 @@ def generate_sysroot(sysroot: Path, api_version: float, arch: str, quiet=False):
   else:
     sys.exit('Unknown arch: ' + arch)
 
-  base_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Base/reference/repos/standard/packages'.format(
+  base_repo = 'https://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Base/reference/repos/standard/packages'.format(
       api_version, api_version
   )
-  unified_repo = 'http://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Unified/reference/repos/standard/packages'.format(
+  unified_repo = 'https://download.tizen.org/snapshots/TIZEN/Tizen-{}/Tizen-{}-Unified/reference/repos/standard/packages'.format(
       api_version, api_version
   )
 
@@ -104,8 +104,9 @@ def generate_sysroot(sysroot: Path, api_version: float, arch: str, quiet=False):
   # Apply a patch if applicable.
   patch = Path(__file__).parent / '{}.patch'.format(arch)
   if patch.is_file():
-    command = 'patch -p1 -s -d {} < {}'.format(sysroot, patch)
-    subprocess.run(command, shell=True, check=True)
+    with open(patch) as file:
+      subprocess.run(['patch', '-p1', '-s', '-d', str(sysroot)],
+                     stdin=file, check=True)
 
 
 def main():
