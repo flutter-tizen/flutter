@@ -64,7 +64,8 @@ class ReactorWorker final : public impeller::ReactorGLES::Worker {
 EmbedderSurfaceGLImpeller::EmbedderSurfaceGLImpeller(
     EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table,
     bool fbo_reset_after_present,
-    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder)
+    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
+    fml::RefPtr<fml::TaskRunner> io_task_runner)
     : gl_dispatch_table_(std::move(gl_dispatch_table)),
       fbo_reset_after_present_(fbo_reset_after_present),
       external_view_embedder_(std::move(external_view_embedder)),
@@ -92,7 +93,7 @@ EmbedderSurfaceGLImpeller::EmbedderSurfaceGLImpeller(
 
   impeller_context_ = impeller::ContextGLES::Create(
       impeller::Flags{}, std::move(gl), shader_mappings,
-      /*enable_gpu_tracing=*/false);
+      /*enable_gpu_tracing=*/false, std::move(io_task_runner));
 
   if (!impeller_context_) {
     FML_LOG(ERROR) << "Could not create Impeller context.";
