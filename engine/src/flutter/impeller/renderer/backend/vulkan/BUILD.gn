@@ -28,6 +28,7 @@ impeller_component("vulkan_unittests") {
     "test/mock_vulkan.cc",
     "test/mock_vulkan.h",
     "test/mock_vulkan_unittests.cc",
+    "test/pipeline_compile_queue_vulkan_unittests.cc",
     "test/sampler_library_vk_unittests.cc",
     "test/swapchain_unittests.cc",
   ]
@@ -80,6 +81,8 @@ impeller_component("vulkan") {
     "pipeline_cache_data_vk.h",
     "pipeline_cache_vk.cc",
     "pipeline_cache_vk.h",
+    "pipeline_compile_queue_vulkan.cc",
+    "pipeline_compile_queue_vulkan.h",
     "pipeline_library_vk.cc",
     "pipeline_library_vk.h",
     "pipeline_vk.cc",

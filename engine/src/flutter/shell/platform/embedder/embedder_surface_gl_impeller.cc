@@ -10,29 +10,16 @@
 #include "impeller/entity/gles/entity_shaders_gles.h"
 #include "impeller/entity/gles/framebuffer_blend_shaders_gles.h"
 #include "impeller/entity/gles/modern_shaders_gles.h"
-#include "impeller/entity/gles3/entity_shaders_gles.h"
-#include "impeller/entity/gles3/framebuffer_blend_shaders_gles.h"
-#include "impeller/entity/gles3/modern_shaders_gles.h"
 #include "impeller/renderer/backend/gles/context_gles.h"
 #include "impeller/renderer/backend/gles/proc_table_gles.h"
 
 namespace flutter {
 
 namespace {
-std::vector<std::shared_ptr<fml::Mapping>> GetShaderMappings(bool is_gles3) {
-  if (is_gles3) {
-    return {
-        std::make_shared<fml::NonOwnedMapping>(
-            impeller_entity_shaders_gles3_data,
-            impeller_entity_shaders_gles3_length),
-        std::make_shared<fml::NonOwnedMapping>(
-            impeller_modern_shaders_gles3_data,
-            impeller_modern_shaders_gles3_length),
-        std::make_shared<fml::NonOwnedMapping>(
-            impeller_framebuffer_blend_shaders_gles3_data,
-            impeller_framebuffer_blend_shaders_gles3_length),
-    };
-  }
+std::vector<std::shared_ptr<fml::Mapping>> GetShaderMappings() {
+  // Tizen: GLES3 impeller shaders are not compiled (see
+  // impeller/tools/shaders.gni). Always use the GLES2 shader set, which is
+  // also valid on GLES3 contexts.
   return {
       std::make_shared<fml::NonOwnedMapping>(
           impeller_entity_shaders_gles_data,
@@ -77,7 +64,8 @@ class ReactorWorker final : public impeller::ReactorGLES::Worker {
 EmbedderSurfaceGLImpeller::EmbedderSurfaceGLImpeller(
     EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table,
     bool fbo_reset_after_present,
-    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder)
+    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
+    fml::RefPtr<fml::TaskRunner> io_task_runner)
     : gl_dispatch_table_(std::move(gl_dispatch_table)),
       fbo_reset_after_present_(fbo_reset_after_present),
       external_view_embedder_(std::move(external_view_embedder)),
@@ -101,13 +89,11 @@ EmbedderSurfaceGLImpeller::EmbedderSurfaceGLImpeller(
     return;
   }
 
-  const auto is_gles3 =
-      gl->GetDescription()->GetGlVersion().IsAtLeast(impeller::Version(3));
-  const auto shader_mappings = GetShaderMappings(is_gles3);
+  const auto shader_mappings = GetShaderMappings();
 
   impeller_context_ = impeller::ContextGLES::Create(
       impeller::Flags{}, std::move(gl), shader_mappings,
-      /*enable_gpu_tracing=*/false);
+      /*enable_gpu_tracing=*/false, std::move(io_task_runner));
 
   if (!impeller_context_) {
     FML_LOG(ERROR) << "Could not create Impeller context.";

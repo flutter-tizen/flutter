@@ -492,7 +492,8 @@ InferOpenGLPlatformViewCreationCallback(
               shell.GetTaskRunners(),  // task runners
               std::make_unique<flutter::EmbedderSurfaceGLImpeller>(
                   gl_dispatch_table, fbo_reset_after_present,
-                  view_embedder),       // embedder_surface
+                  view_embedder,  // embedder_surface
+                  shell.GetTaskRunners().GetIOTaskRunner()),  // io_task_runner
               platform_dispatch_table,  // embedder platform dispatch table
               view_embedder             // external view embedder
           );
@@ -2371,6 +2372,27 @@ FlutterEngineResult FlutterEngineInitialize(size_t version,
       };
       external_texture_resolver = std::make_unique<ExternalTextureResolver>(
           external_texture_metal_callback);
+    }
+  }
+#endif
+#ifdef SHELL_ENABLE_VULKAN
+  if (config->type == kVulkan) {
+    const FlutterVulkanRendererConfig* vulkan_config = &config->vulkan;
+    if (auto callback = SAFE_ACCESS(vulkan_config,
+                                    external_texture_frame_callback, nullptr)) {
+      auto external_texture_vulkan_callback =
+          [ptr = callback, user_data](
+              int64_t texture_identifier, size_t width,
+              size_t height) -> std::unique_ptr<FlutterVulkanTexture> {
+        std::unique_ptr<FlutterVulkanTexture> texture =
+            std::make_unique<FlutterVulkanTexture>();
+        if (!ptr(user_data, texture_identifier, width, height, texture.get())) {
+          return nullptr;
+        }
+        return texture;
+      };
+      external_texture_resolver = std::make_unique<ExternalTextureResolver>(
+          external_texture_vulkan_callback);
     }
   }
 #endif
