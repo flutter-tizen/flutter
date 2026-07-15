@@ -29,7 +29,8 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
     uint32_t queue_family_index,
     VkQueue queue,
     const VulkanDispatchTable& vulkan_dispatch_table,
-    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder)
+    std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
+    const char* cache_path)
     : vk_(fml::MakeRefCounted<vulkan::VulkanProcTable>(
           vulkan_dispatch_table.get_instance_proc_address)),
       vulkan_dispatch_table_(vulkan_dispatch_table),
@@ -54,6 +55,8 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
   settings.shader_libraries_data = shader_mappings;
   settings.proc_address_callback =
       vulkan_dispatch_table.get_instance_proc_address;
+  settings.cache_directory =
+      OpenDirectory(cache_path, false, fml::FilePermission::kRead);
 
   impeller::ContextVK::EmbedderData data;
   data.instance = instance;
