@@ -55,8 +55,10 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
   settings.shader_libraries_data = shader_mappings;
   settings.proc_address_callback =
       vulkan_dispatch_table.get_instance_proc_address;
-  settings.cache_directory =
-      OpenDirectory(cache_path, false, fml::FilePermission::kRead);
+  if (cache_path != nullptr) {
+    settings.cache_directory =
+        OpenDirectory(cache_path, false, fml::FilePermission::kRead);
+  }
 
   impeller::ContextVK::EmbedderData data;
   data.instance = instance;
