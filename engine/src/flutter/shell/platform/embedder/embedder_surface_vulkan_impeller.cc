@@ -57,7 +57,7 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
       vulkan_dispatch_table.get_instance_proc_address;
   if (cache_path != nullptr) {
     settings.cache_directory =
-        OpenDirectory(cache_path, false, fml::FilePermission::kRead);
+        OpenDirectory(cache_path, false, fml::FilePermission::kReadWrite);
   }
 
   impeller::ContextVK::EmbedderData data;
