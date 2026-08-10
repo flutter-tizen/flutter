@@ -158,7 +158,11 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
     impeller::ContextVK& context_vk =
         impeller::ContextVK::Cast(*impeller_context_);
 
-    context_vk.DisposeThreadLocalCachedResources();
+    // The embedder path does not go through
+    // SurfaceContextVK::AcquireNextSurface (which calls MarkFrameEnd).
+    // Call MarkFrameEnd directly to ensure the Vulkan pipeline cache is
+    // periodically persisted to disk and thread-local resources are cleaned up.
+    context_vk.MarkFrameEnd();
 
     impeller::vk::Image vk_image =
         impeller::vk::Image(reinterpret_cast<VkImage>(flutter_image.image));
