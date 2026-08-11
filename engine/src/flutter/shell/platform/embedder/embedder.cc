@@ -683,7 +683,7 @@ InferVulkanPlatformViewCreationCallback(
             static_cast<VkDevice>(config->vulkan.device),
             config->vulkan.queue_family_index,
             static_cast<VkQueue>(config->vulkan.queue), vulkan_dispatch_table,
-            view_embedder);
+            view_embedder,config->vulkan.cache_path);
 
     return fml::MakeCopyable(
         [embedder_surface = std::move(embedder_surface),
