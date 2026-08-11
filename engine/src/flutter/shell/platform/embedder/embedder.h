@@ -1070,6 +1070,11 @@ typedef struct {
   /// perform a host sync, and so the engine can sample the VkImage without any
   /// additional synchronization.
   FlutterVulkanTextureFrameCallback external_texture_frame_callback;
+  /// The path to the Vulkan pipeline cache data.
+  /// The string can be collected after the call to `FlutterEngineRun` returns.
+  /// The string must be NULL terminated.
+  /// If NULL, Impeller will not use the Vulkan pipeline cache.
+  const char* cache_path;
 } FlutterVulkanRendererConfig;
 
 typedef struct {
