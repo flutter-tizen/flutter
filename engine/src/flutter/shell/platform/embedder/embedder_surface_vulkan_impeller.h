@@ -42,7 +42,8 @@ class EmbedderSurfaceVulkanImpeller final : public EmbedderSurface,
       VkQueue queue,
       const VulkanDispatchTable& vulkan_dispatch_table,
       std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
-      impeller::Flags impeller_flags = {});
+      impeller::Flags impeller_flags = {},
+      const char* cache_path = nullptr);
 
   ~EmbedderSurfaceVulkanImpeller() override;
 

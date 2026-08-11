@@ -99,12 +99,7 @@ std::unique_ptr<Surface> SurfaceContextVK::AcquireNextSurface() {
 }
 
 void SurfaceContextVK::MarkFrameEnd() {
-  if (auto pipeline_library = parent_->GetPipelineLibrary()) {
-    impeller::PipelineLibraryVK::Cast(*pipeline_library)
-        .DidAcquireSurfaceFrame();
-  }
-  parent_->DisposeThreadLocalCachedResources();
-  parent_->GetResourceAllocator()->DebugTraceMemoryStatistics();
+  parent_->MarkFrameEnd();
 }
 
 void SurfaceContextVK::UpdateSurfaceSize(const ISize& size) const {
