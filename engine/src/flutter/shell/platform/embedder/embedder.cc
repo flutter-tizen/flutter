@@ -630,6 +630,8 @@ InferVulkanPlatformViewCreationCallback(
   }
 
 #ifdef SHELL_ENABLE_VULKAN
+  const FlutterVulkanRendererConfig* vulkan_config = &config->vulkan;
+
   std::function<void*(VkInstance, const char*)>
       vulkan_get_instance_proc_address =
           [ptr = config->vulkan.get_instance_proc_address_callback, user_data](
@@ -688,7 +690,8 @@ InferVulkanPlatformViewCreationCallback(
             static_cast<VkDevice>(config->vulkan.device),
             config->vulkan.queue_family_index,
             static_cast<VkQueue>(config->vulkan.queue), vulkan_dispatch_table,
-            view_embedder, impeller_flags);
+            view_embedder, impeller_flags,
+            SAFE_ACCESS(vulkan_config, cache_path, nullptr));
 
     return fml::MakeCopyable(
         [embedder_surface = std::move(embedder_surface),
