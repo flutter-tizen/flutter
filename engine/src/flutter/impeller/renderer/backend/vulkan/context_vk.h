@@ -227,6 +227,12 @@ class ContextVK final : public Context,
   // |Context|
   void DisposeThreadLocalCachedResources() override;
 
+  /// @brief Perform frame-end maintenance: persist the pipeline cache to
+  ///        disk periodically and dispose thread-local cached resources.
+  ///        Called by SurfaceContextVK::MarkFrameEnd and directly by
+  ///        embedder paths that bypass AcquireNextSurface.
+  void MarkFrameEnd();
+
   /// @brief Whether the Android Surface control based swapchain should be
   ///        enabled
   bool GetShouldEnableSurfaceControlSwapchain() const;
