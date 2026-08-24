@@ -65,8 +65,10 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTexture(
     const SkISize& size) {
   if (!!aiks_context) {
     return ResolveTextureImpeller(texture_id, aiks_context, size);
-  } else {
+  } else if (!!context) {
     return ResolveTextureSkia(texture_id, context, size);
+  } else {
+    return nullptr;
   }
 }
 
@@ -91,6 +93,17 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     height = texture->height;
   }
 
+  SkColorType color_type;
+  switch (static_cast<VkFormat>(texture->format)) {
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_B8G8R8A8_SRGB:
+      color_type = kBGRA_8888_SkColorType;
+      break;
+    default:
+      color_type = kRGBA_8888_SkColorType;
+      break;
+  }
+
   GrVkImageInfo image_info = {
       .fImage = reinterpret_cast<VkImage>(texture->image),
       .fImageTiling = VK_IMAGE_TILING_OPTIMAL,
@@ -111,7 +124,7 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
       SkImages::BorrowTextureFrom(context,                   // context
                                   gr_backend_texture,        // texture handle
                                   kTopLeft_GrSurfaceOrigin,  // origin
-                                  kRGB_888x_SkColorType,     // color type
+                                  color_type,                // color type
                                   kPremul_SkAlphaType,       // alpha type
                                   nullptr,                   // colorspace
                                   release_proc,       // texture release proc

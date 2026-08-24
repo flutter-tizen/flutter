@@ -106,6 +106,11 @@ EmbedderExternalTextureSourceVulkan::ToTextureDescriptor(
   impeller::TextureDescriptor desc;
   desc.storage_mode = impeller::StorageMode::kDevicePrivate;
   desc.format = ToPixelFormat(embedder_desc->format);
+  if (RequiresYCBCRConversion(
+          static_cast<impeller::vk::Format>(embedder_desc->format))) {
+    // Color-aspect placeholder for YUV images, as in AHBTextureSourceVK.
+    desc.format = impeller::PixelFormat::kR8G8B8A8UNormInt;
+  }
   desc.size = size;
   desc.type = impeller::TextureType::kTexture2D;
   desc.sample_count = impeller::SampleCount::kCount1;
