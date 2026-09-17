@@ -43,6 +43,8 @@ jobs:
       - name: Install depot_tools
         run: |
           git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          git -C depot_tools fetch --depth=1 origin 580b4ff3f5cd0dcaa2eacda28cefe0f45320e8f7
+          git -C depot_tools checkout 580b4ff3f5cd0dcaa2eacda28cefe0f45320e8f7
           echo "$PWD/depot_tools" >> $GITHUB_PATH
           export PATH="$PWD/depot_tools:$PATH"
           # Install ninja
