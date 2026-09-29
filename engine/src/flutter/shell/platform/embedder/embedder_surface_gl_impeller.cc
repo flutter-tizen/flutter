@@ -65,7 +65,7 @@ EmbedderSurfaceGLImpeller::EmbedderSurfaceGLImpeller(
     EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table,
     bool fbo_reset_after_present,
     std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
-    fml::RefPtr<fml::TaskRunner> io_task_runner,
+    std::shared_ptr<fml::BasicTaskRunner> io_task_runner,
     impeller::Flags impeller_flags)
     : gl_dispatch_table_(std::move(gl_dispatch_table)),
       fbo_reset_after_present_(fbo_reset_after_present),
@@ -214,6 +214,12 @@ sk_sp<GrDirectContext> EmbedderSurfaceGLImpeller::CreateResourceContext()
     worker_->SetReactionsAllowedOnCurrentThread(false);
   }
   return nullptr;
+}
+
+// |EmbedderSurface|
+void EmbedderSurfaceGLImpeller::ReleaseResourceContext() const {
+  worker_->SetReactionsAllowedOnCurrentThread(false);
+  gl_dispatch_table_.gl_clear_current_callback();
 }
 
 }  // namespace flutter
