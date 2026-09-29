@@ -52,7 +52,7 @@ class AndroidContextGLImpeller::ReactorWorker final
 static std::shared_ptr<impeller::Context> CreateImpellerContext(
     const std::shared_ptr<impeller::ReactorGLES::Worker>& worker,
     bool enable_gpu_tracing,
-    fml::RefPtr<fml::TaskRunner> io_task_runner) {
+    std::shared_ptr<fml::BasicTaskRunner> io_task_runner) {
   auto proc_table = std::make_unique<impeller::ProcTableGLES>(
       impeller::egl::CreateProcAddressResolver());
 
@@ -86,11 +86,11 @@ static std::shared_ptr<impeller::Context> CreateImpellerContext(
   auto context = impeller::ContextGLES::Create(
       impeller::Flags{}, std::move(proc_table),
       is_gles3 ? gles3_shader_mappings : gles2_shader_mappings,
-      enable_gpu_tracing, io_task_runner);
+      enable_gpu_tracing, std::move(io_task_runner));
 #else
   auto context = impeller::ContextGLES::Create(
       impeller::Flags{}, std::move(proc_table), gles2_shader_mappings,
-      enable_gpu_tracing, io_task_runner);
+      enable_gpu_tracing, std::move(io_task_runner));
 #endif  // !SLIMPELLER
 
   if (!context) {
@@ -109,7 +109,7 @@ static std::shared_ptr<impeller::Context> CreateImpellerContext(
 AndroidContextGLImpeller::AndroidContextGLImpeller(
     std::unique_ptr<impeller::egl::Display> display,
     bool enable_gpu_tracing,
-    fml::RefPtr<fml::TaskRunner> io_task_runner)
+    std::shared_ptr<fml::BasicTaskRunner> io_task_runner)
     : AndroidContext(AndroidRenderingAPI::kImpellerOpenGLES),
       reactor_worker_(std::shared_ptr<ReactorWorker>(new ReactorWorker())),
       display_(std::move(display)),
