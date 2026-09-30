@@ -2396,12 +2396,14 @@ FlutterEngineResult FlutterEngineInitialize(size_t version,
     if (auto callback = SAFE_ACCESS(vulkan_config,
                                     external_texture_frame_callback, nullptr)) {
       auto external_texture_vulkan_callback =
-          [ptr = callback, user_data](
+          [frame_callback = callback, user_data](
               int64_t texture_identifier, size_t width,
-              size_t height) -> std::unique_ptr<FlutterVulkanTexture> {
-        std::unique_ptr<FlutterVulkanTexture> texture =
-            std::make_unique<FlutterVulkanTexture>();
-        if (!ptr(user_data, texture_identifier, width, height, texture.get())) {
+              size_t height) -> std::unique_ptr<FlutterVulkanExternalTexture> {
+        std::unique_ptr<FlutterVulkanExternalTexture> texture =
+            std::make_unique<FlutterVulkanExternalTexture>();
+        texture->struct_size = sizeof(FlutterVulkanExternalTexture);
+        if (!frame_callback(user_data, texture_identifier, width, height,
+                            texture.get())) {
           return nullptr;
         }
         return texture;
