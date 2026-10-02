@@ -731,6 +731,14 @@ void ContextVK::DisposeThreadLocalCachedResources() {
   command_pool_recycler_->Dispose();
 }
 
+void ContextVK::MarkFrameEnd() {
+  if (auto pipeline_library = GetPipelineLibrary()) {
+    PipelineLibraryVK::Cast(*pipeline_library).DidAcquireSurfaceFrame();
+  }
+  DisposeThreadLocalCachedResources();
+  GetResourceAllocator()->DebugTraceMemoryStatistics();
+}
+
 const std::shared_ptr<YUVConversionLibraryVK>&
 ContextVK::GetYUVConversionLibrary() const {
   return yuv_conversion_library_;

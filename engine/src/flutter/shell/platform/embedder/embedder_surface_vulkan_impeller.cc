@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "flutter/fml/file.h"
 #include "flutter/impeller/entity/vk/entity_shaders_vk.h"
 #include "flutter/impeller/entity/vk/framebuffer_blend_shaders_vk.h"
 #include "flutter/impeller/entity/vk/modern_shaders_vk.h"
@@ -30,7 +31,8 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
     VkQueue queue,
     const VulkanDispatchTable& vulkan_dispatch_table,
     std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
-    impeller::Flags impeller_flags)
+    impeller::Flags impeller_flags,
+    const char* cache_path)
     : vk_(fml::MakeRefCounted<vulkan::VulkanProcTable>(
           vulkan_dispatch_table.get_instance_proc_address)),
       vulkan_dispatch_table_(vulkan_dispatch_table),
@@ -56,6 +58,10 @@ EmbedderSurfaceVulkanImpeller::EmbedderSurfaceVulkanImpeller(
   settings.proc_address_callback =
       vulkan_dispatch_table.get_instance_proc_address;
   settings.flags = impeller_flags;
+  if (cache_path != nullptr) {
+    settings.cache_directory =
+        fml::OpenDirectory(cache_path, false, fml::FilePermission::kReadWrite);
+  }
 
   impeller::ContextVK::EmbedderData data;
   data.instance = instance;

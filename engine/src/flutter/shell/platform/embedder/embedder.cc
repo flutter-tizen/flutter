@@ -495,6 +495,7 @@ InferOpenGLPlatformViewCreationCallback(
               shell.GetTaskRunners(),  // task runners
               std::make_unique<flutter::EmbedderSurfaceGLImpeller>(
                   gl_dispatch_table, fbo_reset_after_present, view_embedder,
+                  shell.GetShutdownSafeIOTaskRunner(),
                   impeller_flags),      // embedder_surface
               platform_dispatch_table,  // embedder platform dispatch table
               view_embedder             // external view embedder
@@ -629,6 +630,8 @@ InferVulkanPlatformViewCreationCallback(
   }
 
 #ifdef SHELL_ENABLE_VULKAN
+  const FlutterVulkanRendererConfig* vulkan_config = &config->vulkan;
+
   std::function<void*(VkInstance, const char*)>
       vulkan_get_instance_proc_address =
           [ptr = config->vulkan.get_instance_proc_address_callback, user_data](
@@ -687,7 +690,8 @@ InferVulkanPlatformViewCreationCallback(
             static_cast<VkDevice>(config->vulkan.device),
             config->vulkan.queue_family_index,
             static_cast<VkQueue>(config->vulkan.queue), vulkan_dispatch_table,
-            view_embedder, impeller_flags);
+            view_embedder, impeller_flags,
+            SAFE_ACCESS(vulkan_config, cache_path, nullptr));
 
     return fml::MakeCopyable(
         [embedder_surface = std::move(embedder_surface),
@@ -2383,6 +2387,27 @@ FlutterEngineResult FlutterEngineInitialize(size_t version,
       };
       external_texture_resolver = std::make_unique<ExternalTextureResolver>(
           external_texture_metal_callback);
+    }
+  }
+#endif
+#ifdef SHELL_ENABLE_VULKAN
+  if (config->type == kVulkan) {
+    const FlutterVulkanRendererConfig* vulkan_config = &config->vulkan;
+    if (auto callback = SAFE_ACCESS(vulkan_config,
+                                    external_texture_frame_callback, nullptr)) {
+      auto external_texture_vulkan_callback =
+          [ptr = callback, user_data](
+              int64_t texture_identifier, size_t width,
+              size_t height) -> std::unique_ptr<FlutterVulkanTexture> {
+        std::unique_ptr<FlutterVulkanTexture> texture =
+            std::make_unique<FlutterVulkanTexture>();
+        if (!ptr(user_data, texture_identifier, width, height, texture.get())) {
+          return nullptr;
+        }
+        return texture;
+      };
+      external_texture_resolver = std::make_unique<ExternalTextureResolver>(
+          external_texture_vulkan_callback);
     }
   }
 #endif
