@@ -349,4 +349,53 @@ Shell& EmbedderEngine::GetShell() {
   return *shell_.get();
 }
 
+EmbedderEngine::EmbedderEngine(
+    const flutter::TaskRunners& task_runners,
+    std::unique_ptr<Shell> running_shell,
+    std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
+    : task_runners_(task_runners),
+      run_configuration_(nullptr),
+      shell_(std::move(running_shell)),
+      external_texture_resolver_(std::move(external_texture_resolver)) {}
+
+std::unique_ptr<EmbedderEngine> EmbedderEngine::Spawn(
+    RunConfiguration run_configuration,
+    const std::string& initial_route,
+    const Shell::CreateCallback<PlatformView>& on_create_platform_view,
+    const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
+    std::unique_ptr<EmbedderExternalTextureResolver>
+        external_texture_resolver) {
+  // Only an engine that is already running can be spawned from. An engine
+  // that has not run yet still holds the run configuration it was given.
+  if (!IsValid() || run_configuration_.IsValid()) {
+    return nullptr;
+  }
+  std::unique_ptr<Shell> spawned_shell =
+      shell_->Spawn(std::move(run_configuration), initial_route,
+                    on_create_platform_view, on_create_rasterizer);
+  if (!spawned_shell) {
+    return nullptr;
+  }
+  auto spawned_engine =
+      std::make_unique<EmbedderEngine>(task_runners_, std::move(spawned_shell),
+                                       std::move(external_texture_resolver));
+  spawned_engine->SetSpawnSources(renderer_config_, project_args_);
+  return spawned_engine;
+}
+
+void EmbedderEngine::SetSpawnSources(
+    const FlutterRendererConfig& renderer_config,
+    const FlutterProjectArgs& project_args) {
+  renderer_config_ = renderer_config;
+  project_args_ = project_args;
+}
+
+const FlutterRendererConfig& EmbedderEngine::GetSpawnRendererConfig() const {
+  return renderer_config_;
+}
+
+const FlutterProjectArgs& EmbedderEngine::GetSpawnProjectArgs() const {
+  return project_args_;
+}
+
 }  // namespace flutter

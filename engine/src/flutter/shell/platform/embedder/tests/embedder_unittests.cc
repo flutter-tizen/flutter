@@ -4390,6 +4390,249 @@ TEST_F(EmbedderTest, PlatformThreadIsolatesWithCustomPlatformTaskRunner) {
   ASSERT_EQ(platform_thread_id, ffi_call_thread_id);
 }
 
+// ---------------------------------------------------------------------------
+// Tests for |FlutterEngineSpawn|.
+// ---------------------------------------------------------------------------
+
+TEST_F(EmbedderTest, CanSpawnEngineFromRunningEngine) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto parent = builder.LaunchEngine();
+  ASSERT_TRUE(parent.is_valid());
+
+  FlutterEngine spawned = nullptr;
+  // A null spawn config runs the default "main" entrypoint with the default
+  // route.
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), nullptr, &spawned), kSuccess);
+  ASSERT_NE(spawned, nullptr);
+  ASSERT_EQ(FlutterEngineShutdown(spawned), kSuccess);
+}
+
+TEST_F(EmbedderTest, SpawnedEngineRunsCustomEntrypoint) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  fml::AutoResetWaitableEvent latch;
+  context.AddNativeCallback(
+      "SayHiFromSpawnTarget",
+      CREATE_NATIVE_ENTRY(
+          [&latch](Dart_NativeArguments args) { latch.Signal(); }));
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto parent = builder.LaunchEngine();
+  ASSERT_TRUE(parent.is_valid());
+
+  FlutterSpawnConfig config = {};
+  config.struct_size = sizeof(FlutterSpawnConfig);
+  config.dart_entrypoint = "spawnTargetSaysHi";
+  config.user_data = static_cast<EmbedderTestContext*>(&context);
+
+  FlutterEngine spawned = nullptr;
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), &config, &spawned), kSuccess);
+  ASSERT_NE(spawned, nullptr);
+  latch.Wait();
+  ASSERT_EQ(FlutterEngineShutdown(spawned), kSuccess);
+}
+
+TEST_F(EmbedderTest, SpawnedEngineReceivesEntrypointArgsAndRoute) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  fml::AutoResetWaitableEvent latch;
+  std::string last_report;
+  context.AddNativeCallback(
+      "NotifyStringValue", CREATE_NATIVE_ENTRY([&](Dart_NativeArguments args) {
+        last_report = tonic::DartConverter<std::string>::FromDart(
+            Dart_GetNativeArgument(args, 0));
+        latch.Signal();
+      }));
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto parent = builder.LaunchEngine();
+  ASSERT_TRUE(parent.is_valid());
+
+  const char* entrypoint_args[] = {"alpha", "beta"};
+  FlutterSpawnConfig config = {};
+  config.struct_size = sizeof(FlutterSpawnConfig);
+  config.dart_entrypoint = "spawnTargetReports";
+  config.initial_route = "/spawned";
+  config.dart_entrypoint_argc = 2;
+  config.dart_entrypoint_args = entrypoint_args;
+  config.user_data = static_cast<EmbedderTestContext*>(&context);
+
+  FlutterEngine spawned = nullptr;
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), &config, &spawned), kSuccess);
+  ASSERT_NE(spawned, nullptr);
+  latch.Wait();
+  ASSERT_EQ(last_report, "/spawned|alpha,beta");
+  ASSERT_EQ(FlutterEngineShutdown(spawned), kSuccess);
+}
+
+TEST_F(EmbedderTest, SpawnedEngineCallbacksUseSpawnUserData) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  // Platform messages are delivered on the platform thread, so the engine is
+  // given a dedicated platform thread instead of the default one that runs on
+  // the (blocked) test thread.
+  auto platform_task_runner = CreateNewThread("spawn_test_platform_thread");
+  static std::mutex engine_mutex;
+  UniqueEngine engine;
+  FlutterEngine engine_ptr;
+
+  EmbedderTestTaskRunner test_platform_task_runner(
+      platform_task_runner, [&](FlutterTask task) {
+        std::scoped_lock lock(engine_mutex);
+        if (!engine.is_valid()) {
+          return;
+        }
+        FlutterEngineRunTask(engine.get(), &task);
+      });
+
+  static fml::AutoResetWaitableEvent message_latch;
+  static void* captured_user_data;
+  captured_user_data = nullptr;
+  int spawn_token = 0;
+
+  fml::AutoResetWaitableEvent init_latch;
+  platform_task_runner->PostTask([&]() {
+    EmbedderConfigBuilder builder(context);
+    builder.SetSurface(DlISize(1, 1));
+    const auto platform_task_runner_description =
+        test_platform_task_runner.GetFlutterTaskRunnerDescription();
+    builder.SetPlatformTaskRunner(&platform_task_runner_description);
+
+    // Install a custom message callback and clear the callbacks installed by
+    // the builder: those expect the test context as their user data, while
+    // this test verifies that the spawned engine is handed the user data
+    // from its spawn config instead.
+    auto& args = builder.GetProjectArgs();
+    args.platform_message_callback = [](const FlutterPlatformMessage* message,
+                                        void* user_data) {
+      // Skip the engine-internal messages sent during isolate setup.
+      if (std::string(message->channel) != "spawn_msg") {
+        return;
+      }
+      captured_user_data = user_data;
+      message_latch.Signal();
+    };
+    args.root_isolate_create_callback = nullptr;
+    args.update_semantics_callback = nullptr;
+    args.update_semantics_callback2 = nullptr;
+    args.update_semantics_node_callback = nullptr;
+    args.update_semantics_custom_action_callback = nullptr;
+    args.log_message_callback = nullptr;
+    args.compute_platform_resolved_locale_callback = nullptr;
+    args.channel_update_callback = nullptr;
+    args.view_focus_change_request_callback = nullptr;
+
+    std::scoped_lock lock(engine_mutex);
+    engine = builder.LaunchEngine();
+    engine_ptr = engine.get();
+    ASSERT_TRUE(engine.is_valid());
+    init_latch.Signal();
+  });
+  init_latch.Wait();
+
+  FlutterSpawnConfig config = {};
+  config.struct_size = sizeof(FlutterSpawnConfig);
+  config.dart_entrypoint = "spawnTargetSendsMessage";
+  config.user_data = &spawn_token;
+
+  // Spawning must happen on the parent engine's platform thread.
+  FlutterEngine spawned = nullptr;
+  FlutterEngineResult spawn_result = kInternalInconsistency;
+  fml::AutoResetWaitableEvent spawn_latch;
+  platform_task_runner->PostTask([&] {
+    spawn_result = FlutterEngineSpawn(engine_ptr, &config, &spawned);
+    spawn_latch.Signal();
+  });
+  spawn_latch.Wait();
+  ASSERT_EQ(spawn_result, kSuccess);
+  ASSERT_NE(spawned, nullptr);
+  message_latch.Wait();
+  EXPECT_EQ(captured_user_data, &spawn_token);
+
+  FlutterEngineResult shutdown_result = kInternalInconsistency;
+  fml::AutoResetWaitableEvent kill_latch;
+  platform_task_runner->PostTask([&] {
+    shutdown_result = FlutterEngineShutdown(spawned);
+    {
+      std::scoped_lock lock(engine_mutex);
+      engine.reset();
+    }
+    platform_task_runner->PostTask([&kill_latch] { kill_latch.Signal(); });
+  });
+  kill_latch.Wait();
+  ASSERT_EQ(shutdown_result, kSuccess);
+}
+
+TEST_F(EmbedderTest, SpawnedEngineLifecycleContract) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto parent = builder.LaunchEngine();
+  ASSERT_TRUE(parent.is_valid());
+
+  FlutterEngine spawned = nullptr;
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), nullptr, &spawned), kSuccess);
+  ASSERT_NE(spawned, nullptr);
+
+  // A spawned engine is already running; it cannot be run again.
+  ASSERT_EQ(FlutterEngineRunInitialized(spawned), kInvalidArguments);
+
+  // A spawned engine can be shut down while the parent keeps running.
+  ASSERT_EQ(FlutterEngineShutdown(spawned), kSuccess);
+
+  FlutterWindowMetricsEvent metrics = {};
+  metrics.struct_size = sizeof(FlutterWindowMetricsEvent);
+  metrics.width = 1;
+  metrics.height = 1;
+  metrics.pixel_ratio = 1.0;
+  ASSERT_EQ(FlutterEngineSendWindowMetricsEvent(parent.get(), &metrics),
+            kSuccess);
+}
+
+TEST_F(EmbedderTest, SpawnErrorPaths) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto parent = builder.LaunchEngine();
+  ASSERT_TRUE(parent.is_valid());
+
+  FlutterEngine spawned = nullptr;
+  // Null engine handle.
+  ASSERT_EQ(FlutterEngineSpawn(nullptr, nullptr, &spawned), kInvalidArguments);
+  // Null out-parameter.
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), nullptr, nullptr),
+            kInvalidArguments);
+
+  FlutterSpawnConfig config = {};
+  config.struct_size = sizeof(FlutterSpawnConfig);
+  // An entrypoint library without an entrypoint is invalid.
+  config.dart_entrypoint_library = "some_library";
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), &config, &spawned),
+            kInvalidArguments);
+
+  // dart_entrypoint_argc without dart_entrypoint_args is invalid.
+  config.dart_entrypoint_library = nullptr;
+  config.dart_entrypoint = "spawnTargetSaysHi";
+  config.dart_entrypoint_argc = 1;
+  config.dart_entrypoint_args = nullptr;
+  ASSERT_EQ(FlutterEngineSpawn(parent.get(), &config, &spawned),
+            kInvalidArguments);
+  ASSERT_EQ(spawned, nullptr);
+
+  // An engine that was initialized but never run cannot be spawned from.
+  EmbedderConfigBuilder init_builder(context);
+  init_builder.SetSurface(DlISize(1, 1));
+  auto initialized = init_builder.InitializeEngine();
+  ASSERT_TRUE(initialized.is_valid());
+  ASSERT_NE(FlutterEngineSpawn(initialized.get(), nullptr, &spawned), kSuccess);
+  ASSERT_EQ(spawned, nullptr);
+
+  // The Spawn entry point must be available through the proc table.
+  FlutterEngineProcTable table = {};
+  table.struct_size = sizeof(FlutterEngineProcTable);
+  ASSERT_EQ(FlutterEngineGetProcAddresses(&table), kSuccess);
+  ASSERT_NE(table.Spawn, nullptr);
+}
+
 }  // namespace testing
 }  // namespace flutter
 

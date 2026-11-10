@@ -90,6 +90,49 @@ class EmbedderEngine {
 
   Shell& GetShell();
 
+  // --------------------------------------------------------------------------
+  // Engine group spawning support. These methods back the |FlutterEngineSpawn|
+  // embedder API declared in embedder.h.
+  // --------------------------------------------------------------------------
+
+  //----------------------------------------------------------------------------
+  /// @brief      Creates an embedder engine that adopts an already running
+  ///             shell produced by |Shell::Spawn|. The adopted shell shares
+  ///             its task runners (and therefore its threads) with the shell
+  ///             it was spawned from, so no thread host is owned.
+  ///
+  EmbedderEngine(const TaskRunners& task_runners,
+                 std::unique_ptr<Shell> running_shell,
+                 std::unique_ptr<EmbedderExternalTextureResolver>
+                     external_texture_resolver);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Spawns a new engine in the same isolate group as this
+  ///             engine. The new engine shares this engine's threads, Dart VM
+  ///             and isolate snapshot, and is returned in a running state.
+  ///             This engine must be running and must outlive the spawned
+  ///             engine. Returns nullptr on failure.
+  ///
+  std::unique_ptr<EmbedderEngine> Spawn(
+      RunConfiguration run_configuration,
+      const std::string& initial_route,
+      const Shell::CreateCallback<PlatformView>& on_create_platform_view,
+      const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
+      std::unique_ptr<EmbedderExternalTextureResolver>
+          external_texture_resolver);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Retains the renderer configuration and the project argument
+  ///             fields required to construct the callbacks of engines
+  ///             spawned from this engine.
+  ///
+  void SetSpawnSources(const FlutterRendererConfig& renderer_config,
+                       const FlutterProjectArgs& project_args);
+
+  const FlutterRendererConfig& GetSpawnRendererConfig() const;
+
+  const FlutterProjectArgs& GetSpawnProjectArgs() const;
+
  private:
   std::unique_ptr<EmbedderThreadHost> thread_host_;
   TaskRunners task_runners_;
@@ -97,6 +140,10 @@ class EmbedderEngine {
   std::unique_ptr<ShellArgs> shell_args_;
   std::unique_ptr<Shell> shell_;
   std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver_;
+
+  // Retained spawn sources. See |SetSpawnSources|.
+  FlutterRendererConfig renderer_config_ = {};
+  FlutterProjectArgs project_args_ = {};
 
   FML_DISALLOW_COPY_AND_ASSIGN(EmbedderEngine);
 };
