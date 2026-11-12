@@ -87,6 +87,8 @@ class Allocation {
   uint8_t* buffer_ = nullptr;
   Bytes length_;
   Bytes reserved_;
+  // Whether |buffer_| was obtained with mmap instead of malloc.
+  bool mapped_ = false;
 
   [[nodiscard]] bool Reserve(Bytes reserved);
 

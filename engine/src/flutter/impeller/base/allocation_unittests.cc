@@ -38,6 +38,25 @@ TEST(AllocationTest, ReserveNPOTPotentialOverflow) {
       max_allocation.Truncate(Bytes{std::numeric_limits<uint64_t>::max()}));
 }
 
+TEST(AllocationTest, GrowingAcrossDirectMappingKeepsContents) {
+  Allocation allocation;
+  ASSERT_TRUE(allocation.Truncate(Bytes{1024}, /*npot=*/false));
+  memset(allocation.GetBuffer(), 0xab, 1024);
+
+  // Small (malloc) -> large (mapped) -> larger (mapped).
+  for (uint64_t size : {512u * 1024u, 8u * 1024u * 1024u}) {
+    ASSERT_TRUE(allocation.Truncate(Bytes{size}, /*npot=*/false));
+    EXPECT_GE(allocation.GetReservedLength().GetByteSize(), size);
+    for (size_t i = 0; i < 1024; i++) {
+      ASSERT_EQ(allocation.GetBuffer()[i], 0xab);
+    }
+    memset(allocation.GetBuffer(), 0xab, size);
+  }
+  // Shrinking keeps the reservation.
+  ASSERT_TRUE(allocation.Truncate(Bytes{16}, /*npot=*/false));
+  EXPECT_EQ(allocation.GetBuffer()[15], 0xab);
+}
+
 TEST(AllocationTest, NextPowerOfTwoSize) {
   EXPECT_EQ(*Allocation::NextPowerOfTwoSize((1ULL << 32) - 1), 1ULL << 32);
   EXPECT_EQ(*Allocation::NextPowerOfTwoSize((1ULL << 32) + 1), 1ULL << 33);

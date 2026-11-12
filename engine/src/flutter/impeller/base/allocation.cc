@@ -6,14 +6,37 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
+#include "flutter/fml/build_config.h"
 #include "impeller/base/validation.h"
 
+#if FML_OS_LINUX
+#include <sys/mman.h>
+#endif  // FML_OS_LINUX
+
 namespace impeller {
+
+#if FML_OS_LINUX
+// Reservations at least this large bypass malloc and are mapped directly.
+//
+// glibc raises its mmap threshold (up to 32 MiB) after a large block is freed.
+// From then on, image sized buffers (decoded pixels, staging buffers) are
+// carved out of malloc arenas, and freeing them leaves the pages resident.
+// Mapping them directly returns the pages to the system as soon as the
+// allocation dies.
+static constexpr uint64_t kDirectMappingThreshold = 256u * 1024u;
+#endif  // FML_OS_LINUX
 
 Allocation::Allocation() = default;
 
 Allocation::~Allocation() {
+#if FML_OS_LINUX
+  if (mapped_) {
+    ::munmap(buffer_, reserved_.GetByteSize());
+    return;
+  }
+#endif  // FML_OS_LINUX
   ::free(buffer_);
 }
 
@@ -74,6 +97,35 @@ bool Allocation::Reserve(Bytes reserved) {
   if (reserved <= reserved_) {
     return true;
   }
+
+  if (reserved.GetByteSize() > std::numeric_limits<size_t>::max()) {
+    VALIDATION_LOG << "Allocation failed. Size out of range.";
+    return false;
+  }
+
+#if FML_OS_LINUX
+  if (reserved.GetByteSize() >= kDirectMappingThreshold) {
+    void* mapping =
+        ::mmap(nullptr, reserved.GetByteSize(), PROT_READ | PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mapping == MAP_FAILED) {
+      VALIDATION_LOG << "Allocation failed. Out of host memory.";
+      return false;
+    }
+    if (buffer_) {
+      std::memcpy(mapping, buffer_, reserved_.GetByteSize());
+      if (mapped_) {
+        ::munmap(buffer_, reserved_.GetByteSize());
+      } else {
+        ::free(buffer_);
+      }
+    }
+    buffer_ = static_cast<uint8_t*>(mapping);
+    reserved_ = reserved;
+    mapped_ = true;
+    return true;
+  }
+#endif  // FML_OS_LINUX
 
   auto new_allocation = ::realloc(buffer_, reserved.GetByteSize());
   if (!new_allocation) {
