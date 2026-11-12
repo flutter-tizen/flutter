@@ -4,6 +4,7 @@
 
 #include "impeller/entity/render_target_cache.h"
 #include "impeller/core/formats.h"
+#include "impeller/renderer/context.h"
 #include "impeller/renderer/render_target.h"
 
 namespace impeller {
@@ -155,10 +156,42 @@ RenderTarget RenderTargetCache::CreateOffscreenMSAA(
       }
     }
   }
+  // On GLES the passes run one after another, and every offscreen MSAA pass
+  // clears its multisample color and depth/stencil attachments when it starts
+  // and discards them once resolved (see InlinePassContext). Targets of the
+  // same configuration can therefore share those attachments; only the resolve
+  // texture holds a layer's contents. This matters for sibling layers such as
+  // the two pages of a cross-fade, which would otherwise each allocate their
+  // own full-size 4x MSAA color and depth/stencil buffers.
+  std::shared_ptr<Texture> shared_msaa_texture;
+  std::shared_ptr<Texture> shared_depth_stencil_texture;
+  if (CacheEnabled() &&
+      context.GetBackendType() == Context::BackendType::kOpenGLES) {
+    const PixelFormat pixel_format = target_pixel_format.value_or(
+        context.GetCapabilities()->GetDefaultColorFormat());
+    for (const RenderTargetData& render_target_data : render_target_data_) {
+      if (!(render_target_data.config == config)) {
+        continue;
+      }
+      const ColorAttachment color0 =
+          render_target_data.render_target.GetColorAttachment(0);
+      // With implicit MSAA the multisample texture is also the resolve
+      // texture, so it holds the layer's contents and can't be shared.
+      if (color0.texture == color0.resolve_texture ||
+          color0.texture->GetTextureDescriptor().format != pixel_format) {
+        continue;
+      }
+      std::optional<DepthAttachment> depth =
+          render_target_data.render_target.GetDepthAttachment();
+      shared_msaa_texture = color0.texture;
+      shared_depth_stencil_texture = depth ? depth->texture : nullptr;
+      break;
+    }
+  }
   RenderTarget created_target = RenderTargetAllocator::CreateOffscreenMSAA(
       context, size, mip_count, label, color_attachment_config,
-      stencil_attachment_config, nullptr, nullptr, nullptr,
-      target_pixel_format);
+      stencil_attachment_config, shared_msaa_texture, nullptr,
+      shared_depth_stencil_texture, target_pixel_format);
   if (!created_target.IsValid()) {
     return created_target;
   }

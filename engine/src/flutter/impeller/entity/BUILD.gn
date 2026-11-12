@@ -306,6 +306,7 @@ impeller_component("entity_unittests") {
     "entity_unittests.cc",
     "geometry/geometry_unittests.cc",
     "geometry/shadow_path_geometry_unittests.cc",
+    "render_target_cache_gles_unittests.cc",
     "render_target_cache_unittests.cc",
     "save_layer_utils_unittests.cc",
   ]
