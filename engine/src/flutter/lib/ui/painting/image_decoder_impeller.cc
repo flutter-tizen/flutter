@@ -476,10 +476,9 @@ ImageDecoderImpeller::UnsafeUploadTextureToPrivate(
   texture_descriptor.format = image_info.format;
   texture_descriptor.size = {image_info.size.width, image_info.size.height};
   texture_descriptor.mip_count = texture_descriptor.size.MipCount();
-  if (context->GetBackendType() == impeller::Context::BackendType::kMetal &&
-      resize_info.has_value()) {
-    // The MPS used to resize images on iOS does not require mip generation.
-    // Remove mip count if we are resizing the image on the GPU.
+  if (resize_info.has_value()) {
+    // When resizing on the GPU the decoded texture is only the source of the
+    // resize blit, which reads the base level. Its mips are never sampled.
     texture_descriptor.mip_count = 1;
   }
 
