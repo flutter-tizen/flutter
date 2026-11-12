@@ -5,6 +5,8 @@
 #include "impeller/renderer/backend/gles/reactor_gles.h"
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 #include "flutter/fml/trace_event.h"
 #include "fml/closure.h"
@@ -117,6 +119,84 @@ bool ReactorGLES::HasPendingOperations() const {
   Lock ops_lock(ops_mutex_);
   auto it = ops_.find(thread_id);
   return it != ops_.end() ? !it->second.empty() : false;
+}
+
+bool ReactorGLES::HasPendingCollections() const {
+  ReaderLock handles_lock(handles_mutex_);
+  return handles_to_collect_count_ > 0;
+}
+
+void ReactorGLES::SetCollectionTaskRunner(
+    std::shared_ptr<fml::BasicTaskRunner> task_runner) {
+  collection_task_runner_ = std::move(task_runner);
+}
+
+void ReactorGLES::ScheduleCollection() {
+  if (!collection_task_runner_ || collection_scheduled_.exchange(true)) {
+    return;
+  }
+  collection_task_runner_->PostTask([weak = weak_from_this()]() {
+    if (auto reactor = weak.lock()) {
+      reactor->collection_scheduled_ = false;
+      [[maybe_unused]] bool reacted = reactor->React();
+    }
+  });
+}
+
+static int64_t SteadyNowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+// Mesa drivers keep freed buffer objects in a cache and release the ones that
+// were freed more than two seconds earlier only when another buffer object is
+// freed. On a static screen nothing else is freed, so the memory of deleted
+// textures stays allocated. Free a tiny buffer once three seconds have passed
+// since the last deletion.
+void ReactorGLES::ScheduleDriverCacheTrim() {
+  if (!collection_task_runner_ || driver_cache_trim_scheduled_.exchange(true)) {
+    return;
+  }
+  std::thread([weak = weak_from_this(), task_runner = collection_task_runner_] {
+    constexpr int64_t kDelayMs = 3000;
+    int64_t last_free_ms = 0;
+    while (true) {
+      auto reactor = weak.lock();
+      if (!reactor) {
+        return;
+      }
+      last_free_ms = reactor->last_buffer_object_free_ms_;
+      reactor.reset();
+      const int64_t wait_ms = last_free_ms + kDelayMs - SteadyNowMs();
+      if (wait_ms <= 0) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
+    }
+    task_runner->PostTask([weak, last_free_ms]() {
+      auto reactor = weak.lock();
+      if (!reactor) {
+        return;
+      }
+      reactor->driver_cache_trim_scheduled_ = false;
+      [[maybe_unused]] bool added =
+          reactor->AddOperation([](const ReactorGLES& reactor) {
+            const auto& gl = reactor.GetProcTable();
+            GLuint buffer = GL_NONE;
+            gl.GenBuffers(1, &buffer);
+            gl.BindBuffer(GL_ARRAY_BUFFER, buffer);
+            gl.BufferData(GL_ARRAY_BUFFER, 16, nullptr, GL_STATIC_DRAW);
+            gl.BindBuffer(GL_ARRAY_BUFFER, GL_NONE);
+            gl.DeleteBuffers(1, &buffer);
+          });
+      [[maybe_unused]] bool reacted = reactor->React();
+      // Objects freed while this was pending may not have been old enough.
+      if (reactor->last_buffer_object_free_ms_ != last_free_ms) {
+        reactor->ScheduleDriverCacheTrim();
+      }
+    });
+  }).detach();
 }
 
 const ProcTableGLES& ReactorGLES::GetProcTable() const {
@@ -240,6 +320,7 @@ void ReactorGLES::CollectHandle(HandleGLES handle) {
     LiveHandle live_handle(GLStorage{.integer = handle.untracked_id_.value()});
     live_handle.pending_collection = true;
     WriterLock handles_lock(handles_mutex_);
+    handles_to_collect_count_ += 1;
     handles_[handle] = std::move(live_handle);
   } else {
     WriterLock handles_lock(handles_mutex_);
@@ -250,6 +331,9 @@ void ReactorGLES::CollectHandle(HandleGLES handle) {
       found->second.pending_collection = true;
     }
   }
+  if (!CanReactOnCurrentThread()) {
+    ScheduleCollection();
+  }
 }
 
 bool ReactorGLES::React() {
@@ -257,6 +341,11 @@ bool ReactorGLES::React() {
     return false;
   }
   TRACE_EVENT0("impeller", "ReactorGLES::React");
+  if (!HasPendingOperations()) {
+    // Handles collected since the last reaction would otherwise wait for the
+    // next operation, which a static screen may not issue for a long time.
+    return !HasPendingCollections() || ConsolidateHandles();
+  }
   while (HasPendingOperations()) {
     if (!ReactOnce()) {
       return false;
@@ -351,13 +440,22 @@ bool ReactorGLES::ConsolidateHandles() {
     gl.SetDebugLabel(std::get<0>(handle), std::get<1>(handle),
                      std::get<2>(handle));
   }
+  bool freed_buffer_objects = false;
   for (const auto& handle : handles_to_delete) {
     const std::optional<GLStorage>& storage = std::get<1>(handle);
     // This could be false if the handle was created and collected without
     // use. We still need to get rid of map entry.
     if (storage.has_value()) {
-      CollectGLHandle(gl, std::get<0>(handle).GetType(), storage.value());
+      const HandleType type = std::get<0>(handle).GetType();
+      CollectGLHandle(gl, type, storage.value());
+      freed_buffer_objects |= type == HandleType::kTexture ||
+                              type == HandleType::kBuffer ||
+                              type == HandleType::kRenderBuffer;
     }
+  }
+  if (freed_buffer_objects) {
+    last_buffer_object_free_ms_ = SteadyNowMs();
+    ScheduleDriverCacheTrim();
   }
 
   return true;

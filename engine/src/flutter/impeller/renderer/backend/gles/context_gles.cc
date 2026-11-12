@@ -43,6 +43,7 @@ ContextGLES::ContextGLES(
     VALIDATION_LOG << "Could not create valid reactor.";
     return;
   }
+  reactor_->SetCollectionTaskRunner(io_task_runner);
 
   // Create the shader library.
   {

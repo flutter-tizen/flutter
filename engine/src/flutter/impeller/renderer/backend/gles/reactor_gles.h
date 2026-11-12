@@ -5,11 +5,13 @@
 #ifndef FLUTTER_IMPELLER_RENDERER_BACKEND_GLES_REACTOR_GLES_H_
 #define FLUTTER_IMPELLER_RENDERER_BACKEND_GLES_REACTOR_GLES_H_
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <vector>
 
 #include "fml/closure.h"
+#include "fml/task_runner.h"
 #include "impeller/base/thread.h"
 #include "impeller/renderer/backend/gles/handle_gles.h"
 #include "impeller/renderer/backend/gles/proc_table_gles.h"
@@ -54,7 +56,7 @@ namespace impeller {
 ///             reactor handle means that the OpenGL handle will be deleted at
 ///             some point in the near future.
 ///
-class ReactorGLES {
+class ReactorGLES : public std::enable_shared_from_this<ReactorGLES> {
  public:
   using WorkerID = UniqueID;
 
@@ -266,6 +268,20 @@ class ReactorGLES {
   ///
   [[nodiscard]] bool React();
 
+  //----------------------------------------------------------------------------
+  /// @brief      Lets the reactor react on |task_runner|, whose thread must be
+  ///             able to react (such as the IO thread with the resource
+  ///             context current).
+  ///
+  ///             Handles collected on threads that cannot react are then
+  ///             deleted promptly instead of with the next frame, which a
+  ///             static screen may not render for a long time. Drivers that
+  ///             cache freed buffer objects (such as Mesa) are also given a
+  ///             chance to release them afterwards.
+  ///
+  void SetCollectionTaskRunner(
+      std::shared_ptr<fml::BasicTaskRunner> task_runner);
+
  private:
   /// @brief Storage for either a GL handle or sync fence.
   struct GLStorage {
@@ -314,6 +330,16 @@ class ReactorGLES {
   bool ReactOnce();
 
   bool HasPendingOperations() const;
+
+  bool HasPendingCollections() const;
+
+  void ScheduleCollection();
+  void ScheduleDriverCacheTrim();
+
+  std::shared_ptr<fml::BasicTaskRunner> collection_task_runner_;
+  std::atomic<bool> collection_scheduled_ = false;
+  std::atomic<bool> driver_cache_trim_scheduled_ = false;
+  std::atomic<int64_t> last_buffer_object_free_ms_ = 0;
 
   bool ConsolidateHandles();
 

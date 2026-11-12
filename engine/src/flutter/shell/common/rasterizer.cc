@@ -737,6 +737,17 @@ std::unique_ptr<FrameItem> Rasterizer::DrawToSurfacesUnsafe(
     surface_->GetContext()->performDeferredCleanup(kSkiaCleanupExpiration);
   }
 #endif  //  !SLIMPELLER
+#if IMPELLER_SUPPORTS_RENDERING
+  // The layer trees replaced above may have held the last references to
+  // textures, such as images that the app has already disposed. Like the
+  // deferred cleanup above, delete them now that the frame is done: a static
+  // screen may not render another frame for a long time.
+  if (impeller_context_) {
+    if (auto context = impeller_context_->GetContext()) {
+      [[maybe_unused]] bool flushed = context->FlushCommandBuffers();
+    }
+  }
+#endif  // IMPELLER_SUPPORTS_RENDERING
 
   if (resubmitted_tasks.empty()) {
     return nullptr;
