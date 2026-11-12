@@ -238,6 +238,53 @@ absl::StatusOr<DecodedBitmap> HandlePremultiplication(
   return DecodedBitmap{.bitmap = premul_bitmap, .allocator = premul_allocator};
 }
 
+bool HasFour8BitChannels(SkColorType type) {
+  switch (type) {
+    case kRGBA_8888_SkColorType:
+    case kBGRA_8888_SkColorType:
+    case kRGB_888x_SkColorType:
+    case kSRGBA_8888_SkColorType:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Rounded average of four 4-byte pixels, two 8-bit channels per 16-bit lane.
+uint32_t Average4(uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
+  constexpr uint32_t kLanes = 0x00FF00FF;
+  constexpr uint32_t kRound = 0x00020002;
+  const uint32_t even =
+      (((a & kLanes) + (b & kLanes) + (c & kLanes) + (d & kLanes) + kRound) >>
+       2) &
+      kLanes;
+  const uint32_t odd = ((((a >> 8) & kLanes) + ((b >> 8) & kLanes) +
+                         ((c >> 8) & kLanes) + ((d >> 8) & kLanes) + kRound) >>
+                        2) &
+                       kLanes;
+  return even | (odd << 8);
+}
+
+// Writes the average of each 2x2 block of |src| (or 2x1 and 1x2 where only
+// one dimension is halved) to |dst|. Both have four 8-bit channels (see
+// HasFour8BitChannels), which are averaged independently.
+void Halve8888(const SkPixmap& src, const SkPixmap& dst) {
+  const bool halve_x = dst.width() != src.width();
+  const bool halve_y = dst.height() != src.height();
+  for (int y = 0; y < dst.height(); y++) {
+    const int y0 = halve_y ? 2 * y : y;
+    const int y1 = halve_y ? std::min(y0 + 1, src.height() - 1) : y0;
+    const uint32_t* row0 = src.addr32(0, y0);
+    const uint32_t* row1 = src.addr32(0, y1);
+    uint32_t* out = dst.writable_addr32(0, y);
+    for (int x = 0; x < dst.width(); x++) {
+      const int x0 = halve_x ? 2 * x : x;
+      const int x1 = halve_x ? std::min(x0 + 1, src.width() - 1) : x0;
+      out[x] = Average4(row0[x0], row0[x1], row1[x0], row1[x1]);
+    }
+  }
+}
+
 absl::StatusOr<ImageDecoderImpeller::DecompressResult> ResizeOnCpu(
     const std::shared_ptr<SkBitmap>& bitmap,
     const SkISize& target_size,
@@ -256,7 +303,37 @@ absl::StatusOr<ImageDecoderImpeller::DecompressResult> ResizeOnCpu(
     FML_DLOG(ERROR) << error;
     return absl::ResourceExhaustedError(error);
   }
-  if (!bitmap->pixmap().scalePixels(
+  // A bilinear reduction to less than half the size aliases. Halve the image
+  // first by averaging 2x2 pixels, which box-filters like mipmaps do, without
+  // the levels below the target. The intermediates use the Impeller allocator,
+  // so their memory is returned to the system as soon as they die.
+  std::shared_ptr<SkBitmap> source = bitmap;
+  std::shared_ptr<ImpellerAllocator> source_allocator;
+  while (source->width() > 2 * target_size.width() ||
+         source->height() > 2 * target_size.height()) {
+    const SkISize half = SkISize::Make(
+        source->width() > 2 * target_size.width() ? source->width() / 2
+                                                  : source->width(),
+        source->height() > 2 * target_size.height() ? source->height() / 2
+                                                    : source->height());
+    auto half_allocator = std::make_shared<ImpellerAllocator>(allocator);
+    auto half_bitmap = std::make_shared<SkBitmap>();
+    half_bitmap->setInfo(source->info().makeDimensions(half));
+    if (!half_bitmap->tryAllocPixels(half_allocator.get())) {
+      break;
+    }
+    if (HasFour8BitChannels(source->colorType())) {
+      Halve8888(source->pixmap(), half_bitmap->pixmap());
+    } else if (!source->pixmap().scalePixels(
+                   half_bitmap->pixmap(),
+                   SkSamplingOptions(SkFilterMode::kLinear,
+                                     SkMipmapMode::kNone))) {
+      break;
+    }
+    source = std::move(half_bitmap);
+    source_allocator = std::move(half_allocator);
+  }
+  if (!source->pixmap().scalePixels(
           scaled_bitmap->pixmap(),
           SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone))) {
     FML_LOG(ERROR) << "Could not scale decoded bitmap data.";
@@ -433,9 +510,16 @@ ImageDecoderImpeller::DecompressTexture(
   std::shared_ptr<ImpellerAllocator> bitmap_allocator =
       premultiplied->allocator;
 
+  // The GPU resize is a bilinear blit of the decoded image, which aliases
+  // when it shrinks the image to less than half its size. Compressed formats
+  // that decode at a reduced scale (JPEG) rarely get there. Shrink the others
+  // on the CPU, which filters with mipmaps and skips uploading the full-size
+  // image to the GPU, like decoding to a desired size does in DALi.
+  const bool large_reduction = bitmap->width() > 2 * target_size.width() ||
+                               bitmap->height() > 2 * target_size.height();
   if (source_size.width() > max_texture_size.width ||
       source_size.height() > max_texture_size.height ||
-      !capabilities->SupportsTextureToTextureBlits()) {
+      !capabilities->SupportsTextureToTextureBlits() || large_reduction) {
     return ResizeOnCpu(bitmap, target_size, allocator);
   }
 
