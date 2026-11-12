@@ -30,6 +30,9 @@ toolchain("custom") {
   syscall_compat_flags = "-include ${syscall_compat_header}"
 
   custom_lib_flags = "-L${custom_toolchain}/lib"
+  if (custom_toolchain_use_lld) {
+    custom_lib_flags += " -fuse-ld=lld -Wl,--icf=all"
+  }
 
   # These library switches can apply to all tools below.
   lib_switch = "-l"

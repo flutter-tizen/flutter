@@ -14,4 +14,8 @@ declare_args() {
 
   # The target triple. For example: arm-linux-gnueabihf.
   custom_target_triple = ""
+
+  # Link with lld (expected at ${custom_toolchain}/bin/ld.lld) instead of the
+  # system linker. Required for LTO and enables identical code folding.
+  custom_toolchain_use_lld = false
 }

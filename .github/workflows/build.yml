@@ -63,21 +63,38 @@ jobs:
         if: ${{ matrix.arch != 'x64' }}
         run: |
           cd flutter
-          # Ignore unsupported linker option.
-          sed -i "/-Wl,--undefined-version/d" engine/src/build/config/compiler/BUILD.gn
           sed -i "s/Wno-nontrivial-memcall/Wno-nontrivial-memaccess/g" engine/src/build/config/compiler/BUILD.gn
+
+          # Release is optimized for size. Profile builds the same code so that
+          # it measures what release runs, but keeps the unwind tables for
+          # profilers and crash stacks. Debug keeps the default options.
+          # Size optimization links with lld when the toolchain image provides
+          # it (see ci/tizen/build_llvm.sh), for LTO and identical code folding:
+          # without LTO, -Os costs ~10% in text layout.
+          OPT_ARGS="--no-lto" GN_ARGS=""
+          if [ "${{ matrix.mode }}" != debug ] && [ -x /tizen_tools/toolchains/bin/ld.lld ]; then
+            OPT_ARGS="--optimize-for-size" GN_ARGS="custom_toolchain_use_lld=true"
+          else
+            # The system linker supports neither LTO nor this option.
+            sed -i "/-Wl,--undefined-version/d" engine/src/build/config/compiler/BUILD.gn
+          fi
+          if [ "${{ matrix.mode }}" = release ]; then
+            GN_ARGS="$GN_ARGS linux_unwind_tables=false"
+          fi
 
           engine/src/flutter/tools/gn \
             --target-os linux \
             --linux-cpu ${{ matrix.arch }} \
             --no-goma \
-            --no-lto \
+            $OPT_ARGS \
+            --slimpeller \
             --target-toolchain /tizen_tools/toolchains \
             --target-sysroot /tizen_tools/sysroot/${{ matrix.arch }} \
             --target-triple ${{ matrix.triple }} \
             --runtime-mode ${{ matrix.mode }} \
             --enable-fontconfig \
             --disable-desktop-embeddings \
+            ${GN_ARGS:+--gn-args "$GN_ARGS"} \
             --target-dir build
           cd engine/src
           ninja -C out/build flutter_engine_library
@@ -88,14 +105,23 @@ jobs:
         run: |
           cd flutter
 
+          # x64 only runs on emulators: keep -O2, -Os costs ~9% in text layout
+          # there. Release drops the unwind tables.
+          GN_ARGS=""
+          if [ "${{ matrix.mode }}" = release ]; then
+            GN_ARGS="linux_unwind_tables=false"
+          fi
+
           engine/src/flutter/tools/gn \
           --target-os linux \
           --linux-cpu ${{ matrix.arch }} \
           --no-goma \
+          --slimpeller \
           --target-triple ${{ matrix.triple }} \
           --runtime-mode ${{ matrix.mode }} \
           --enable-fontconfig \
           --disable-desktop-embeddings \
+          ${GN_ARGS:+--gn-args "$GN_ARGS"} \
           --target-dir build
 
           cd engine/src

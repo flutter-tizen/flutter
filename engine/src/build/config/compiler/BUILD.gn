@@ -41,6 +41,13 @@ declare_args() {
 
   # Prefer size over speed when compiling to wasm
   wasm_prioritize_size = false
+
+  # Emit .eh_frame unwind tables in Linux target binaries. Nothing in the
+  # engine is built with C++ exceptions, so they only serve on-device stack
+  # unwinding of stripped binaries (e.g. FML crash backtraces). With symbols
+  # enabled, the call frame information is still emitted to .debug_frame of
+  # the unstripped binary.
+  linux_unwind_tables = true
 }
 
 # default_include_dirs ---------------------------------------------------------
@@ -411,6 +418,13 @@ config("compiler") {
       cflags += [ "--target=aarch64-linux-gnu" ]
       ldflags += [ "--target=aarch64-linux-gnu" ]
       cflags += [ "-DBORINGSSL_CLANG_SUPPORTS_DOT_ARCH" ]
+    }
+
+    if (!linux_unwind_tables && current_toolchain == default_toolchain) {
+      cflags += [
+        "-fno-asynchronous-unwind-tables",
+        "-fno-unwind-tables",
+      ]
     }
   }
 

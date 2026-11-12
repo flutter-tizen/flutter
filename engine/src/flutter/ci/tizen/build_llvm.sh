@@ -26,7 +26,7 @@ fi
 mkdir -p build && cd build
 cmake -G Ninja \
   -DCLANG_VENDOR="Tizen" \
-  -DLLVM_ENABLE_PROJECTS="clang" \
+  -DLLVM_ENABLE_PROJECTS="clang;lld" \
   -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64" \
   -DCMAKE_C_COMPILER=clang-11 \
   -DCMAKE_CXX_FLAGS="-mssse3" \

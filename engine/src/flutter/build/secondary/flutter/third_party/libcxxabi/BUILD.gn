@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/toolchain/clang.gni")
+
 config("libcxxabi_config") {
   common_cc_flags = [
     "-nostdinc++",
@@ -39,6 +41,16 @@ source_set("libcxxabi") {
   configs += [ "//build/config/compiler:cxx_version_20" ]
 
   configs += [ "//flutter/third_party/libcxx:src_include" ]
+
+  # On 32-bit ARM, __cxa_end_cleanup tail-branches to _Unwind_Resume from inline
+  # assembly. Assembled during LTO that branch becomes a 16-bit Thumb branch,
+  # which cannot reach _Unwind_Resume in a shared libgcc_s (R_ARM_THM_JUMP11),
+  # so keep this library out of LTO there.
+  if (current_cpu == "arm" && enable_lto) {
+    # After the optimize config's -flto: target cflags come before config ones,
+    # but C++ flags come after all C flags.
+    cflags_cc = [ "-fno-lto" ]
+  }
 
   # No translation units in the engine are built with exceptions. But, using
   # Objective-C exceptions requires some infrastructure setup for exceptions,
