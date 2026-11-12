@@ -4,6 +4,7 @@
 
 #include "impeller/typographer/backends/skia/typographer_context_skia.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -211,13 +212,13 @@ static ISize ComputeNextAtlasSize(
     std::vector<Rect>& glyph_positions,
     const std::vector<Rect>& glyph_sizes,
     size_t glyph_index_start,
-    int64_t max_texture_height) {
+    int64_t max_texture_height,
+    int64_t min_atlas_height) {
   // Because we can't grow the skyline packer horizontally, pick a reasonable
   // large width for all atlases.
   static constexpr int64_t kAtlasWidth = 4096;
-  static constexpr int64_t kMinAtlasHeight = 1024;
 
-  ISize current_size = ISize(kAtlasWidth, kMinAtlasHeight);
+  ISize current_size = ISize(kAtlasWidth, min_atlas_height);
   if (atlas_context->GetAtlasSize().height > current_size.height) {
     current_size.height = atlas_context->GetAtlasSize().height * 2;
   }
@@ -624,6 +625,7 @@ std::shared_ptr<GlyphAtlas> TypographerContextSkia::CreateGlyphAtlas(
   }
 
   int64_t height_adjustment = atlas_context->GetAtlasSize().height;
+  const int64_t last_atlas_height = height_adjustment;
   const int64_t max_texture_height =
       context.GetResourceAllocator()->GetMaxTextureSizeSupported().height;
 
@@ -655,12 +657,23 @@ std::shared_ptr<GlyphAtlas> TypographerContextSkia::CreateGlyphAtlas(
   }
 
   // A new glyph atlas must be created.
+  // GLES does not grow a full atlas: it rebuilds it with only the glyphs of
+  // this frame. Start at 4096x256 (1 MB as alpha and 4 MB as color, against
+  // 4 MB and 16 MB at the 1024 rows used elsewhere) and double the starting
+  // height on each rebuild up to those 1024 rows, so that text which keeps
+  // overflowing a small atlas does not rebuild it every frame.
+  static constexpr int64_t kMinAtlasHeight = 1024;
+  const int64_t min_atlas_height =
+      context.GetBackendType() == Context::BackendType::kOpenGLES
+          ? std::clamp<int64_t>(last_atlas_height * 2, 256, kMinAtlasHeight)
+          : kMinAtlasHeight;
   ISize atlas_size = ComputeNextAtlasSize(atlas_context,        //
                                           new_glyphs,           //
                                           glyph_positions,      //
                                           glyph_sizes,          //
                                           first_missing_index,  //
-                                          max_texture_height    //
+                                          max_texture_height,   //
+                                          min_atlas_height      //
   );
 
   atlas_context->UpdateGlyphAtlas(new_atlas, atlas_size, height_adjustment);

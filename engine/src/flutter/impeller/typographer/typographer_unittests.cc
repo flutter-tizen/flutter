@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <cstring>
+
 #include "flutter/display_list/testing/dl_test_snippets.h"
 #include "flutter/testing/testing.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "impeller/core/host_buffer.h"
 #include "impeller/playground/playground.h"
 #include "impeller/playground/playground_test.h"
+#include "impeller/renderer/testing/mocks.h"
 #include "impeller/typographer/backends/skia/text_frame_skia.h"
 #include "impeller/typographer/backends/skia/typographer_context_skia.h"
 #include "impeller/typographer/font_glyph_pair.h"
@@ -25,6 +29,10 @@
 
 namespace impeller {
 namespace testing {
+
+using ::testing::NiceMock;
+using ::testing::Return;
+using ::testing::ReturnRef;
 
 using TypographerTest = PlaygroundTest;
 INSTANTIATE_PLAYGROUND_SUITE(TypographerTest);
@@ -183,7 +191,9 @@ TEST_P(TypographerTest, GlyphAtlasWithOddUniqueGlyphSize) {
   ASSERT_NE(atlas->GetTexture(), nullptr);
 
   EXPECT_EQ(atlas->GetTexture()->GetSize().width, 4096u);
-  EXPECT_EQ(atlas->GetTexture()->GetSize().height, 1024u);
+  const bool is_gles = GetBackend() == PlaygroundBackend::kOpenGLES ||
+                       GetBackend() == PlaygroundBackend::kOpenGLESSDF;
+  EXPECT_EQ(atlas->GetTexture()->GetSize().height, is_gles ? 256u : 1024u);
 }
 
 TEST_P(TypographerTest, GlyphAtlasIsRecycledIfUnchanged) {
@@ -632,6 +642,114 @@ TEST_P(TypographerTest, AlphaBitmapAtlasWithLightGlyphsSkiaBitmapIsRGBA8888) {
   SkImageInfo image_info = TypographerContextSkia::GetImageInfo(
       *atlas, Size{100, 100}, /*support_light_glyphs=*/true);
   EXPECT_EQ(image_info.colorType(), kRGBA_8888_SkColorType);
+}
+
+namespace {
+
+class HostMemoryAllocator : public Allocator {
+ public:
+  ISize GetMaxTextureSizeSupported() const override { return {4096, 4096}; }
+
+  std::shared_ptr<DeviceBuffer> OnCreateBuffer(
+      const DeviceBufferDescriptor& desc) override {
+    storage_.push_back(std::make_unique<uint8_t[]>(desc.size));
+    uint8_t* contents = storage_.back().get();
+    auto buffer = std::make_shared<NiceMock<MockDeviceBuffer>>(desc);
+    ON_CALL(*buffer, OnGetContents()).WillByDefault(Return(contents));
+    ON_CALL(*buffer, OnCopyHostBuffer)
+        .WillByDefault([contents](const uint8_t* source, Range source_range,
+                                  size_t offset) {
+          memcpy(contents + offset, source + source_range.offset,
+                 source_range.length);
+          return true;
+        });
+    return buffer;
+  }
+
+  std::shared_ptr<Texture> OnCreateTexture(const TextureDescriptor& desc,
+                                           bool threadsafe) override {
+    auto texture = std::make_shared<NiceMock<MockTexture>>(desc);
+    ON_CALL(*texture, IsValid()).WillByDefault(Return(true));
+    ON_CALL(*texture, GetSize()).WillByDefault(Return(desc.size));
+    return texture;
+  }
+
+ private:
+  std::vector<std::unique_ptr<uint8_t[]>> storage_;
+};
+
+}  // namespace
+
+// GLES rebuilds a full glyph atlas instead of growing it. Text that alternates
+// between two glyph sets, which fit in the first atlas one at a time but not
+// together, must not rebuild the atlas every frame.
+TEST(TypographerGLESTest, RebuiltGlyphAtlasHasRoomForAlternatingGlyphs) {
+  auto allocator = std::make_shared<HostMemoryAllocator>();
+  auto capabilities = std::make_shared<NiceMock<MockCapabilities>>();
+  ON_CALL(*capabilities, GetDefaultGlyphAtlasFormat())
+      .WillByDefault(Return(PixelFormat::kA8UNormInt));
+  std::shared_ptr<const Capabilities> const_capabilities = capabilities;
+  auto queue = std::make_shared<NiceMock<MockCommandQueue>>();
+  auto context = std::make_shared<NiceMock<MockImpellerContext>>();
+  ON_CALL(*context, GetBackendType())
+      .WillByDefault(Return(Context::BackendType::kOpenGLES));
+  ON_CALL(*context, GetResourceAllocator()).WillByDefault(Return(allocator));
+  ON_CALL(*context, GetCapabilities())
+      .WillByDefault(ReturnRef(const_capabilities));
+  ON_CALL(*context, GetCommandQueue()).WillByDefault(Return(queue));
+  ON_CALL(*context, CreateCommandBuffer()).WillByDefault([&context]() {
+    auto command_buffer =
+        std::make_shared<NiceMock<MockCommandBuffer>>(context);
+    ON_CALL(*command_buffer, IsValid()).WillByDefault(Return(true));
+    ON_CALL(*command_buffer, OnCreateBlitPass()).WillByDefault([]() {
+      auto blit_pass = std::make_shared<NiceMock<MockBlitPass>>();
+      ON_CALL(*blit_pass, IsValid()).WillByDefault(Return(true));
+      ON_CALL(*blit_pass, EncodeCommands()).WillByDefault(Return(true));
+      ON_CALL(*blit_pass, OnCopyBufferToTextureCommand)
+          .WillByDefault(Return(true));
+      return blit_pass;
+    });
+    return command_buffer;
+  });
+
+  auto typographer_context = TypographerContextSkia::Make();
+  auto atlas_context = typographer_context->CreateGlyphAtlasContext(
+      GlyphAtlas::Type::kAlphaBitmap);
+  auto host_buffer = HostBuffer::Create(allocator, /*idle_waiter=*/nullptr,
+                                        /*minimum_uniform_alignment=*/256);
+  auto make_frame = [](Scalar font_size) {
+    return MakeTextFrameFromTextBlobSkia(SkTextBlob::MakeFromString(
+        "ABCDEFGHIJKLMNOPQRST",
+        flutter::testing::CreateTestFontOfSize(font_size)));
+  };
+  // About 140 px tall glyphs: one set takes most of a 4096 px row.
+  auto frame_a = make_frame(200);
+  auto frame_b = make_frame(210);
+  auto create_atlas = [&](const std::shared_ptr<TextFrame>& frame) {
+    return CreateGlyphAtlas(*context, typographer_context.get(), *host_buffer,
+                            GlyphAtlas::Type::kAlphaBitmap, Matrix(),
+                            atlas_context, frame);
+  };
+
+  auto atlas = create_atlas(frame_a);
+  ASSERT_TRUE(atlas && atlas->GetTexture());
+  EXPECT_EQ(atlas->GetTexture()->GetSize().height, 256);
+  const std::shared_ptr<Texture> first_texture = atlas->GetTexture();
+
+  atlas = create_atlas(frame_b);
+  ASSERT_TRUE(atlas && atlas->GetTexture());
+  // The second set did not fit next to the first one.
+  ASSERT_NE(atlas->GetTexture(), first_texture);
+  EXPECT_EQ(atlas->GetTexture()->GetSize().height, 512);
+  const std::shared_ptr<Texture> rebuilt_texture = atlas->GetTexture();
+
+  for (int i = 0; i < 3; i++) {
+    for (const auto& frame : {frame_a, frame_b}) {
+      atlas = create_atlas(frame);
+      ASSERT_TRUE(atlas);
+      EXPECT_EQ(atlas->GetTexture(), rebuilt_texture);
+    }
+  }
 }
 
 }  // namespace testing
