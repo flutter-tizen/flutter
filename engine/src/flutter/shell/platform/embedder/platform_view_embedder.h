@@ -91,7 +91,7 @@ class PlatformViewEmbedder final : public PlatformView {
       std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder);
 #endif
 
-#ifdef SHELL_ENABLE_VULKAN
+#if defined(SHELL_ENABLE_VULKAN) && !SLIMPELLER
   // Creates a platform view that sets up an Vulkan rasterizer.
   PlatformViewEmbedder(
       PlatformView::Delegate& delegate,

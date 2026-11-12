@@ -4,6 +4,8 @@
 
 #include "flutter/shell/platform/embedder/embedder_surface_vulkan.h"
 
+#if !SLIMPELLER
+
 #include <utility>
 
 #include "flutter/flutter_vma/flutter_skia_vma.h"
@@ -209,3 +211,5 @@ sk_sp<GrDirectContext> EmbedderSurfaceVulkan::CreateGrContext(
 }
 
 }  // namespace flutter
+
+#endif  // !SLIMPELLER

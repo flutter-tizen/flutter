@@ -30,7 +30,7 @@ class EmbedderSurfaceGLImpeller final : public EmbedderSurface,
                                         public GPUSurfaceGLDelegate {
  public:
   EmbedderSurfaceGLImpeller(
-      EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table,
+      EmbedderGLDispatchTable gl_dispatch_table,
       bool fbo_reset_after_present,
       std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder,
       std::shared_ptr<fml::BasicTaskRunner> io_task_runner,
@@ -44,7 +44,7 @@ class EmbedderSurfaceGLImpeller final : public EmbedderSurface,
   FML_FRIEND_TEST(testing::EmbedderSurfaceGLImpellerTest,
                   GLES2ContextDoesNotHaveGLES3Shaders);
   bool valid_ = false;
-  EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table_;
+  EmbedderGLDispatchTable gl_dispatch_table_;
   bool fbo_reset_after_present_;
   std::shared_ptr<impeller::ContextGLES> impeller_context_;
   std::shared_ptr<EmbedderExternalViewEmbedder> external_view_embedder_;

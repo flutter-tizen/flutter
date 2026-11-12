@@ -94,7 +94,7 @@ PlatformViewEmbedder::PlatformViewEmbedder(
       platform_dispatch_table_(std::move(platform_dispatch_table)) {}
 #endif
 
-#ifdef SHELL_ENABLE_VULKAN
+#if defined(SHELL_ENABLE_VULKAN) && !SLIMPELLER
 PlatformViewEmbedder::PlatformViewEmbedder(
     PlatformView::Delegate& delegate,
     const flutter::TaskRunners& task_runners,

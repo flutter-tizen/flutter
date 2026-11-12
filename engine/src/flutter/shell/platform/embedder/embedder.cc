@@ -288,7 +288,8 @@ static const flutter::DlIRect FlutterRectToDlIRect(FlutterRect flutter_rect) {
 #define GL_BGRA8_EXT 0x93A1
 #endif
 
-static std::optional<SkColorType> FlutterFormatToSkColorType(uint32_t format) {
+[[maybe_unused]] static std::optional<SkColorType> FlutterFormatToSkColorType(
+    uint32_t format) {
   switch (format) {
     case GL_BGRA8_EXT:
       return kBGRA_8888_SkColorType;
@@ -471,7 +472,7 @@ InferOpenGLPlatformViewCreationCallback(
   bool fbo_reset_after_present =
       SAFE_ACCESS(open_gl_config, fbo_reset_after_present, false);
 
-  flutter::EmbedderSurfaceGLSkia::GLDispatchTable gl_dispatch_table = {
+  flutter::EmbedderGLDispatchTable gl_dispatch_table = {
       gl_make_current,                     // gl_make_current_callback
       gl_clear_current,                    // gl_clear_current_callback
       gl_present,                          // gl_present_callback
@@ -501,6 +502,7 @@ InferOpenGLPlatformViewCreationCallback(
               view_embedder             // external view embedder
           );
         }
+#if !SLIMPELLER
         return std::make_unique<flutter::PlatformViewEmbedder>(
             shell,                   // delegate
             shell.GetTaskRunners(),  // task runners
@@ -510,6 +512,10 @@ InferOpenGLPlatformViewCreationCallback(
             platform_dispatch_table,  // embedder platform dispatch table
             view_embedder             // external view embedder
         );
+#else   // !SLIMPELLER
+        FML_LOG(FATAL) << "Impeller opt-out unavailable.";
+        return std::unique_ptr<flutter::PlatformViewEmbedder>();
+#endif  // !SLIMPELLER
       });
 #else   // SHELL_ENABLE_GL
   FML_LOG(ERROR) << "This Flutter Engine does not support OpenGL rendering.";
@@ -707,6 +713,7 @@ InferVulkanPlatformViewCreationCallback(
           );
         });
   } else {
+#if !SLIMPELLER
     flutter::EmbedderSurfaceVulkan::VulkanDispatchTable vulkan_dispatch_table =
         {
             .get_instance_proc_address =
@@ -741,6 +748,10 @@ InferVulkanPlatformViewCreationCallback(
               std::move(external_view_embedder)  // external view embedder
           );
         });
+#else   // !SLIMPELLER
+    FML_LOG(FATAL) << "Impeller opt-out unavailable.";
+    return nullptr;
+#endif  // !SLIMPELLER
   }
 #else
   flutter::EmbedderSurfaceVulkan::VulkanDispatchTable vulkan_dispatch_table = {
@@ -860,6 +871,9 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
     GrDirectContext* context,
     const FlutterBackingStoreConfig& config,
     const FlutterOpenGLTexture* texture) {
+#if SLIMPELLER
+  return nullptr;
+#else  // SLIMPELLER
 #ifdef SHELL_ENABLE_GL
   GrGLTextureInfo texture_info;
   texture_info.fTarget = texture->target;
@@ -900,12 +914,16 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
 #else
   return nullptr;
 #endif
+#endif  // SLIMPELLER
 }
 
 static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
     GrDirectContext* context,
     const FlutterBackingStoreConfig& config,
     const FlutterOpenGLFramebuffer* framebuffer) {
+#if SLIMPELLER
+  return nullptr;
+#else  // SLIMPELLER
 #ifdef SHELL_ENABLE_GL
   GrGLFramebufferInfo framebuffer_info = {};
   framebuffer_info.fFormat = framebuffer->target;
@@ -947,12 +965,16 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
 #else
   return nullptr;
 #endif
+#endif  // SLIMPELLER
 }
 
 static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
     GrDirectContext* context,
     const FlutterBackingStoreConfig& config,
     const FlutterOpenGLSurface* surface) {
+#if SLIMPELLER
+  return nullptr;
+#else  // SLIMPELLER
 #ifdef SHELL_ENABLE_GL
   GrGLFramebufferInfo framebuffer_info = {};
   framebuffer_info.fFormat = SAFE_ACCESS(surface, format, GL_BGRA8_EXT);
@@ -994,6 +1016,7 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
 #else
   return nullptr;
 #endif
+#endif  // SLIMPELLER
 }
 
 static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
@@ -1318,6 +1341,9 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
     GrDirectContext* context,
     const FlutterBackingStoreConfig& config,
     const FlutterVulkanBackingStore* vulkan) {
+#if SLIMPELLER
+  return nullptr;
+#else  // SLIMPELLER
 #ifdef SHELL_ENABLE_VULKAN
   if (!vulkan->image) {
     FML_LOG(ERROR) << "Embedder supplied null Vulkan image.";
@@ -1363,6 +1389,7 @@ static sk_sp<SkSurface> MakeSkSurfaceFromBackingStore(
 #else
   return nullptr;
 #endif
+#endif  // SLIMPELLER
 }
 
 static std::unique_ptr<flutter::EmbedderRenderTarget>

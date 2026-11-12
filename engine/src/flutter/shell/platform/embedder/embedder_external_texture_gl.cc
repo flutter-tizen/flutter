@@ -81,6 +81,9 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureSkia(
     int64_t texture_id,
     GrDirectContext* context,
     const SkISize& size) {
+#if SLIMPELLER
+  return nullptr;
+#else   // SLIMPELLER
   if (!context) {
     return nullptr;
   }
@@ -130,6 +133,7 @@ sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureSkia(
 
   // This image should not escape local use by EmbedderExternalTextureGL
   return DlImageSkia::Make(std::move(image));
+#endif  // SLIMPELLER
 }
 
 sk_sp<DlImage> EmbedderExternalTextureGL::ResolveTextureImpeller(

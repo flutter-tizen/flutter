@@ -5,6 +5,8 @@
 #ifndef FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_SURFACE_VULKAN_H_
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_SURFACE_VULKAN_H_
 
+#if !SLIMPELLER
+
 #include "flutter/fml/macros.h"
 #include "flutter/shell/common/context_options.h"
 #include "flutter/shell/gpu/gpu_surface_vulkan.h"
@@ -84,5 +86,7 @@ class EmbedderSurfaceVulkan final : public EmbedderSurface,
 };
 
 }  // namespace flutter
+
+#endif  // !SLIMPELLER
 
 #endif  // FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_SURFACE_VULKAN_H_

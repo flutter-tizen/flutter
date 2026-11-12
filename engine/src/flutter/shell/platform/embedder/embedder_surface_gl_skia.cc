@@ -8,6 +8,8 @@
 
 #include "flutter/shell/common/shell_io_manager.h"
 
+#if !SLIMPELLER
+
 namespace flutter {
 
 EmbedderSurfaceGLSkia::EmbedderSurfaceGLSkia(
@@ -126,3 +128,5 @@ sk_sp<GrDirectContext> EmbedderSurfaceGLSkia::CreateResourceContext() const {
 }
 
 }  // namespace flutter
+
+#endif  // !SLIMPELLER

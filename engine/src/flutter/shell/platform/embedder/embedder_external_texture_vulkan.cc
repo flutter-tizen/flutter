@@ -68,7 +68,7 @@ bool IsYuvFormat(VkFormat format) {
   }
 }
 
-SkColorType ToSkColorType(VkFormat format) {
+[[maybe_unused]] SkColorType ToSkColorType(VkFormat format) {
   switch (format) {
     case VK_FORMAT_R8G8B8A8_UNORM:
       return kRGBA_8888_SkColorType;
@@ -350,6 +350,9 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
     int64_t texture_id,
     GrDirectContext* context,
     const SkISize& size) {
+#if SLIMPELLER
+  return nullptr;
+#else   // SLIMPELLER
   if (!context) {
     return nullptr;
   }
@@ -434,6 +437,7 @@ sk_sp<DlImage> EmbedderExternalTextureVulkan::ResolveTextureSkia(
   }
 
   return DlImageSkia::Make(std::move(image));
+#endif  // SLIMPELLER
 }
 
 #if IMPELLER_SUPPORTS_RENDERING
