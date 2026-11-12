@@ -95,10 +95,26 @@ config("libjpeg_config") {
   include_dirs = [ _source_location ]
 }
 
+# Use the ARM NEON sources on Linux (Tizen) as well. The x86 ones need yasm.
+# The arm32 ones use GNU as syntax that clang's integrated assembler rejects,
+# so they are assembled with GNU as (binutils), which the Tizen toolchain
+# image provides.
+_linux_arm_simd =
+    is_linux && (current_cpu == "arm64" ||
+                 (current_cpu == "arm" && arm_version >= 7 &&
+                  (arm_use_neon || arm_optionally_use_neon)))
+
+# -Os measurably slows decoding; keep the codec at -O2 in size optimized builds.
+_optimize_for_speed = !is_debug && optimize_for_size
+
 static_library("simd") {
   configs += [ ":libjpeg_config" ]
+  if (_optimize_for_speed) {
+    configs -= [ "//build/config/compiler:optimize" ]
+    configs += [ "//build/config/compiler:optimize_max" ]
+  }
 
-  if (!is_fuchsia || using_fuchsia_sdk) {
+  if ((!is_fuchsia || using_fuchsia_sdk) && !_linux_arm_simd) {
     sources = [ "$_source_location/jsimd_none.c" ]
   } else if (current_cpu == "x86") {
     deps = [ ":simd_asm" ]
@@ -114,6 +130,9 @@ static_library("simd") {
       "$_source_location/simd/jsimd_arm.c",
       "$_source_location/simd/jsimd_arm_neon.S",
     ]
+    if (is_linux) {
+      asmflags = [ "-fno-integrated-as" ]
+    }
   } else if (current_cpu == "arm64") {
     sources = [
       "$_source_location/simd/jsimd_arm64.c",
@@ -178,6 +197,10 @@ static_library("libjpeg") {
   ]
 
   configs += [ ":libjpeg_config" ]
+  if (_optimize_for_speed) {
+    configs -= [ "//build/config/compiler:optimize" ]
+    configs += [ "//build/config/compiler:optimize_max" ]
+  }
 
   public_configs = [ ":libjpeg_config" ]
 
