@@ -6,8 +6,10 @@
 #define FLUTTER_LIB_UI_PAINTING_IMMUTABLE_BUFFER_H_
 
 #include <cstdint>
+#include <memory>
 
 #include "flutter/fml/macros.h"
+#include "flutter/fml/mapping.h"
 #include "flutter/lib/ui/dart_wrapper.h"
 #include "third_party/skia/include/core/SkData.h"
 #include "third_party/tonic/dart_library_natives.h"
@@ -95,6 +97,9 @@ class ImmutableBuffer : public RefCountedDartWrappable<ImmutableBuffer> {
   sk_sp<SkData> data_;
 
   static sk_sp<SkData> MakeSkDataWithCopy(const void* data, size_t length);
+
+  static sk_sp<SkData> MakeSkDataFromMapping(
+      std::unique_ptr<fml::Mapping> mapping);
 
   DEFINE_WRAPPERTYPEINFO();
   FML_FRIEND_MAKE_REF_COUNTED(ImmutableBuffer);

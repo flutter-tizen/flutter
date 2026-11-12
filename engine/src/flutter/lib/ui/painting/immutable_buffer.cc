@@ -15,7 +15,7 @@
 #include "third_party/tonic/dart_binding_macros.h"
 #include "third_party/tonic/dart_persistent_value.h"
 
-#if FML_OS_ANDROID
+#if FML_OS_ANDROID || FML_OS_LINUX
 #include <sys/mman.h>
 #endif
 
@@ -108,8 +108,7 @@ Dart_Handle ImmutableBuffer::initFromAsset(Dart_Handle raw_buffer_handle,
         size_t buffer_size = 0;
         if (mapping != nullptr) {
           buffer_size = mapping->GetSize();
-          const void* bytes = static_cast<const void*>(mapping->GetMapping());
-          sk_data = MakeSkDataWithCopy(bytes, buffer_size);
+          sk_data = MakeSkDataFromMapping(std::move(mapping));
         }
         ui_task_runner->PostTask(
             [sk_data = std::move(sk_data), ui_task = ui_task, buffer_size]() {
@@ -189,13 +188,33 @@ Dart_Handle ImmutableBuffer::initFromFile(Dart_Handle raw_buffer_handle,
   return Dart_Null();
 }
 
-#if FML_OS_ANDROID
+// Assets are read-only package files, so the buffer can own their mapping
+// instead of a copy. File-backed pages stay clean and reclaimable, and loading
+// skips a copy of every asset image. (Other files are still copied: they could
+// be truncated while mapped.)
+sk_sp<SkData> ImmutableBuffer::MakeSkDataFromMapping(
+    std::unique_ptr<fml::Mapping> mapping) {
+  if (mapping->GetSize() == 0 || mapping->GetMapping() == nullptr) {
+    return SkData::MakeEmpty();
+  }
+  const void* bytes = mapping->GetMapping();
+  const size_t size = mapping->GetSize();
+  return SkData::MakeWithProc(
+      bytes, size,
+      [](const void* ptr, void* context) {
+        delete static_cast<fml::Mapping*>(context);
+      },
+      mapping.release());
+}
+
+#if FML_OS_ANDROID || FML_OS_LINUX
 
 // Compressed image buffers are allocated on the UI thread but are deleted on a
 // decoder worker thread.  Android's implementation of malloc appears to
 // continue growing the native heap size when the allocating thread is
-// different from the freeing thread.  To work around this, create an SkData
-// backed by an anonymous mapping.
+// different from the freeing thread, and glibc keeps such large freed blocks
+// in its arenas.  To work around this, create an SkData backed by an anonymous
+// mapping.
 sk_sp<SkData> ImmutableBuffer::MakeSkDataWithCopy(const void* data,
                                                   size_t length) {
   if (length == 0) {
@@ -232,6 +251,6 @@ sk_sp<SkData> ImmutableBuffer::MakeSkDataWithCopy(const void* data,
   return SkData::MakeWithCopy(data, length);
 }
 
-#endif  // FML_OS_ANDROID
+#endif  // FML_OS_ANDROID || FML_OS_LINUX
 
 }  // namespace flutter
