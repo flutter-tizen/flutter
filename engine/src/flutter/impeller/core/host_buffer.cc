@@ -17,6 +17,11 @@
 namespace impeller {
 
 constexpr size_t kAllocatorBlockSize = 1024000;  // 1024 Kb.
+// Blocks start smaller: most frames of simple UIs fit, and the GLES backend
+// allocates every block's full size as a GPU buffer. The first frame that
+// overflows a block switches all blocks to kAllocatorBlockSize for good, so
+// heavier apps behave as before and nothing is reallocated every frame.
+constexpr size_t kInitialBlockSize = 256000;
 
 std::shared_ptr<HostBuffer> HostBuffer::Create(
     const std::shared_ptr<Allocator>& allocator,
@@ -36,9 +41,10 @@ HostBuffer::HostBuffer(
     : allocator_(allocator),
       idle_waiter_(idle_waiter),
       submission_tracker_(std::move(submission_tracker)),
-      minimum_uniform_alignment_(minimum_uniform_alignment) {
+      minimum_uniform_alignment_(minimum_uniform_alignment),
+      block_size_(kInitialBlockSize) {
   DeviceBufferDescriptor desc;
-  desc.size = kAllocatorBlockSize;
+  desc.size = block_size_;
   desc.storage_mode = StorageMode::kHostVisible;
   for (auto i = 0u; i < kHostBufferArenaSize; i++) {
     std::shared_ptr<DeviceBuffer> device_buffer = allocator->CreateBuffer(desc);
@@ -104,10 +110,26 @@ HostBuffer::TestStateQuery HostBuffer::GetStateForTest() {
 }
 
 bool HostBuffer::MaybeCreateNewBuffer() {
+  block_size_ = kAllocatorBlockSize;
+  std::shared_ptr<DeviceBuffer>& current =
+      device_buffers_[frame_index_][current_buffer_];
+  if (offset_ == 0 && current->GetDeviceBufferDescriptor().size < block_size_) {
+    // Nothing of this frame is in the small block yet: replace it.
+    DeviceBufferDescriptor desc;
+    desc.size = block_size_;
+    desc.storage_mode = StorageMode::kHostVisible;
+    std::shared_ptr<DeviceBuffer> buffer = allocator_->CreateBuffer(desc);
+    if (!buffer) {
+      VALIDATION_LOG << "Failed to allocate host buffer of size " << desc.size;
+      return false;
+    }
+    current = std::move(buffer);
+    return true;
+  }
   current_buffer_++;
   if (current_buffer_ >= device_buffers_[frame_index_].size()) {
     DeviceBufferDescriptor desc;
-    desc.size = kAllocatorBlockSize;
+    desc.size = block_size_;
     desc.storage_mode = StorageMode::kHostVisible;
     std::shared_ptr<DeviceBuffer> buffer = allocator_->CreateBuffer(desc);
     if (!buffer) {
@@ -150,7 +172,7 @@ HostBuffer::EmplaceInternal(size_t length,
   if (align > 0 && offset_ % align) {
     padding = align - (offset_ % align);
   }
-  if (offset_ + padding + length > kAllocatorBlockSize) {
+  if (offset_ + padding + length > CurrentBlockSize()) {
     if (!MaybeCreateNewBuffer()) {
       return {};
     }
@@ -191,7 +213,7 @@ HostBuffer::EmplaceInternal(const void* buffer, size_t length) {
   }
 
   auto old_length = GetLength();
-  if (old_length + length > kAllocatorBlockSize) {
+  if (old_length + length > CurrentBlockSize()) {
     if (!MaybeCreateNewBuffer()) {
       return {};
     }
@@ -217,7 +239,7 @@ HostBuffer::EmplaceInternal(const void* buffer, size_t length, size_t align) {
 
   {
     auto padding = align - (GetLength() % align);
-    if (offset_ + padding < kAllocatorBlockSize) {
+    if (offset_ + padding < CurrentBlockSize()) {
       offset_ += padding;
     } else if (!MaybeCreateNewBuffer()) {
       return {};
@@ -229,6 +251,10 @@ HostBuffer::EmplaceInternal(const void* buffer, size_t length, size_t align) {
 
 const std::shared_ptr<DeviceBuffer>& HostBuffer::GetCurrentBuffer() const {
   return device_buffers_[frame_index_][current_buffer_];
+}
+
+size_t HostBuffer::CurrentBlockSize() const {
+  return GetCurrentBuffer()->GetDeviceBufferDescriptor().size;
 }
 
 void HostBuffer::Reset() {
@@ -247,36 +273,46 @@ void HostBuffer::Reset() {
   current_buffer_ = 0u;
   frame_index_ = (frame_index_ + 1) % kHostBufferArenaSize;
 
-  if (!submission_tracker_) {
-    return;
-  }
-  uint64_t completed = submission_tracker_->CompletedThrough();
+  if (submission_tracker_) {
+    uint64_t completed = submission_tracker_->CompletedThrough();
 
-  // Release retired buffers the GPU has completed with.
-  std::erase_if(retired_buffers_, [completed](const auto& retired) {
-    return retired.first <= completed;
-  });
+    // Release retired buffers the GPU has completed with.
+    std::erase_if(retired_buffers_, [completed](const auto& retired) {
+      return retired.first <= completed;
+    });
 
-  if (entry_stamps_[frame_index_] <= completed) {
-    return;
+    if (entry_stamps_[frame_index_] > completed) {
+      // The GPU may still be reading the next entry's buffers. Retire them and
+      // start the entry over with a fresh allocation, since reusing them would
+      // race the reads of an incomplete earlier frame.
+      DeviceBufferDescriptor desc;
+      desc.size = block_size_;
+      desc.storage_mode = StorageMode::kHostVisible;
+      std::shared_ptr<DeviceBuffer> buffer = allocator_->CreateBuffer(desc);
+      if (!buffer) {
+        VALIDATION_LOG << "Failed to replace an in-flight host buffer entry.";
+        return;
+      }
+      retired_buffers_.emplace_back(entry_stamps_[frame_index_],
+                                    std::move(device_buffers_[frame_index_]));
+      device_buffers_[frame_index_].clear();
+      device_buffers_[frame_index_].push_back(std::move(buffer));
+      entry_stamps_[frame_index_] = 0;
+      return;
+    }
   }
 
-  // The GPU may still be reading the next entry's buffers. Retire them and
-  // start the entry over with a fresh allocation, since reusing them would
-  // race the reads of an incomplete earlier frame.
-  DeviceBufferDescriptor desc;
-  desc.size = kAllocatorBlockSize;
-  desc.storage_mode = StorageMode::kHostVisible;
-  std::shared_ptr<DeviceBuffer> buffer = allocator_->CreateBuffer(desc);
-  if (!buffer) {
-    VALIDATION_LOG << "Failed to replace an in-flight host buffer entry.";
-    return;
+  // Grow the first block of the next arena once blocks have switched to the
+  // larger size. The GPU has completed with it, as for any reuse of the arena.
+  std::shared_ptr<DeviceBuffer>& first = device_buffers_[frame_index_][0];
+  if (first->GetDeviceBufferDescriptor().size < block_size_) {
+    DeviceBufferDescriptor desc;
+    desc.size = block_size_;
+    desc.storage_mode = StorageMode::kHostVisible;
+    if (std::shared_ptr<DeviceBuffer> buffer = allocator_->CreateBuffer(desc)) {
+      first = std::move(buffer);
+    }
   }
-  retired_buffers_.emplace_back(entry_stamps_[frame_index_],
-                                std::move(device_buffers_[frame_index_]));
-  device_buffers_[frame_index_].clear();
-  device_buffers_[frame_index_].push_back(std::move(buffer));
-  entry_stamps_[frame_index_] = 0;
 }
 
 size_t HostBuffer::GetMinimumUniformAlignment() const {

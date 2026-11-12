@@ -165,6 +165,8 @@ class HostBuffer {
 
   const std::shared_ptr<DeviceBuffer>& GetCurrentBuffer() const;
 
+  size_t CurrentBlockSize() const;
+
   [[nodiscard]] BufferView Emplace(const void* buffer, size_t length);
 
   explicit HostBuffer(
@@ -193,6 +195,7 @@ class HostBuffer {
   size_t offset_ = 0u;
   size_t frame_index_ = 0u;
   size_t minimum_uniform_alignment_ = 0u;
+  size_t block_size_;
 };
 
 }  // namespace impeller
