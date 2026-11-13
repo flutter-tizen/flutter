@@ -19,6 +19,7 @@ import("//build/config/profiler.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build/toolchain/ccache.gni")
 import("//build/toolchain/clang.gni")
+import("//build/toolchain/custom/custom.gni")
 import("//build/toolchain/toolchain.gni")
 import("//build/toolchain/wasm.gni")
 
@@ -640,9 +641,15 @@ config("runtime_library") {
     ldflags += [ "-nostdlib++" ]
 
     if (is_linux) {
-      # Our custom libcxx doesn't include the unwinder, which is included in
-      # libc++.a. Link the libunwind directly.
-      ldflags += [ "--unwindlib=libunwind" ]
+      if (custom_toolchain != "" && current_toolchain == default_toolchain) {
+        # A custom toolchain (e.g. Tizen's clang 18) links clang's default
+        # runtime, libgcc, whose unwinder must then be libgcc's as well.
+        ldflags += [ "--unwindlib=libgcc" ]
+      } else {
+        # Our custom libcxx doesn't include the unwinder, which is included in
+        # libc++.a. Link the libunwind directly.
+        ldflags += [ "--unwindlib=libunwind" ]
+      }
     }
   }
 
