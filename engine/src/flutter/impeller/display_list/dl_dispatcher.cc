@@ -330,8 +330,8 @@ void DlDispatcherBase::saveLayer(const DlRect& bounds,
       // Unbounded content can still have user specified bounds that require a
       // saveLayer to be created to perform the clip.
       options.can_distribute_opacity() && !options.content_is_unbounded(),
-      backdrop_id  //
-  );
+      backdrop_id,  //
+      LayerNeedsAntialiasing(&bounds));
 }
 
 // |flutter::DlOpReceiver|
@@ -812,7 +812,9 @@ void DlDispatcherBase::drawDisplayList(
     GetCanvas().SaveLayer(save_paint, display_list->GetBounds(), nullptr,
                           ContentBoundsPromise::kContainsContents,
                           display_list->total_depth(),
-                          display_list->can_apply_group_opacity());
+                          display_list->can_apply_group_opacity(),
+                          /*backdrop_id=*/std::nullopt,
+                          LayerNeedsAntialiasing(display_list.get()));
   } else {
     // The display list may alter the clip, which must be restored to the
     // current clip at the end of playback.
@@ -936,6 +938,11 @@ static bool RequiresReadbackForBlends(
          max_root_blend_mode > Entity::kLastPipelineBlendMode;
 }
 
+bool DlDispatcherBase::LayerNeedsAntialiasing(const void* layer_key) const {
+  auto it = layer_antialiasing_.find(layer_key);
+  return it == layer_antialiasing_.end() || it->second;
+}
+
 CanvasDlDispatcher::CanvasDlDispatcher(ContentContext& renderer,
                                        RenderTarget& render_target,
                                        bool is_onscreen,
@@ -1024,6 +1031,12 @@ void FirstPassDispatcher::saveLayer(const DlRect& bounds,
                                     const flutter::SaveLayerOptions options,
                                     const flutter::DlImageFilter* backdrop,
                                     std::optional<int64_t> backdrop_id) {
+  // The filtered layer is drawn into the parent.
+  bool layer_has_image_filter =
+      options.renders_with_attributes() && has_image_filter_;
+  if (layer_has_image_filter) {
+    MarkLayerNeedsAntialiasing();
+  }
   save();
 
   const bool has_layer_bounds =
@@ -1050,9 +1063,25 @@ void FirstPassDispatcher::saveLayer(const DlRect& bounds,
     cull_rect_state_.back() =
         global_cull_rect.IntersectionOrEmpty(bounds.TransformBounds(matrix_));
   }
+
+  // The op's bounds live in the DisplayList storage, so their address
+  // identifies this saveLayer to the CanvasDlDispatcher as well.
+  PushLayer(&bounds);
+  // The filtered backdrop is drawn into the new layer, and a filtered layer's
+  // texture is not rounded out to whole pixels (see Canvas::SaveLayer), so
+  // device pixel edges are not on its texel grid.
+  if (backdrop != nullptr || layer_has_image_filter) {
+    MarkLayerNeedsAntialiasing();
+  }
 }
 
 void FirstPassDispatcher::restore() {
+  if (!layers_.empty() && layers_.back().depth == stack_.size()) {
+    // A DisplayList drawn more than once needs it if any instance does.
+    bool& needs = layer_antialiasing_[layers_.back().key];
+    needs = needs || layers_.back().needs_antialiasing;
+    layers_.pop_back();
+  }
   matrix_ = stack_.back();
   stack_.pop_back();
   cull_rect_state_.pop_back();
@@ -1075,6 +1104,8 @@ void Clip(std::vector<Rect>& cull_rect_state,
 void FirstPassDispatcher::clipRect(const DlRect& rect,
                                    flutter::DlClipOp clip_op,
                                    bool is_aa) {
+  // Check the clip edges against the cull rect before the clip shrinks it.
+  CheckRectEdges(rect);
   Clip(cull_rect_state_, matrix_, rect, clip_op);
 }
 
@@ -1082,6 +1113,7 @@ void FirstPassDispatcher::clipRect(const DlRect& rect,
 void FirstPassDispatcher::clipOval(const DlRect& bounds,
                                    flutter::DlClipOp clip_op,
                                    bool is_aa) {
+  MarkLayerNeedsAntialiasing();
   Clip(cull_rect_state_, matrix_, bounds, clip_op);
 }
 
@@ -1089,6 +1121,7 @@ void FirstPassDispatcher::clipOval(const DlRect& bounds,
 void FirstPassDispatcher::clipRoundRect(const DlRoundRect& rrect,
                                         flutter::DlClipOp clip_op,
                                         bool is_aa) {
+  MarkLayerNeedsAntialiasing();
   Clip(cull_rect_state_, matrix_, rrect.GetBounds(), clip_op);
 }
 
@@ -1096,6 +1129,7 @@ void FirstPassDispatcher::clipRoundRect(const DlRoundRect& rrect,
 void FirstPassDispatcher::clipPath(const DlPath& path,
                                    flutter::DlClipOp clip_op,
                                    bool is_aa) {
+  MarkLayerNeedsAntialiasing();
   Clip(cull_rect_state_, matrix_, path.GetBounds(), clip_op);
 }
 
@@ -1103,6 +1137,7 @@ void FirstPassDispatcher::clipPath(const DlPath& path,
 void FirstPassDispatcher::clipRoundSuperellipse(const DlRoundSuperellipse& rse,
                                                 flutter::DlClipOp clip_op,
                                                 bool is_aa) {
+  MarkLayerNeedsAntialiasing();
   Clip(cull_rect_state_, matrix_, rse.GetBounds(), clip_op);
 }
 
@@ -1165,6 +1200,14 @@ void FirstPassDispatcher::drawText(const std::shared_ptr<flutter::DlText>& text,
     return;
   }
 
+  // Large text is drawn as paths (see Canvas::DrawTextFrame).
+  if (has_image_filter_ || !matrix_.IsAligned2D() ||
+      matrix_.GetMaxBasisLengthXY() *
+              text_frame->GetRuns()[0].GetFont().GetMetrics().point_size >
+          Canvas::kMaxTextScale) {
+    MarkLayerNeedsAntialiasing();
+  }
+
   properties.stroke = paint_.GetStroke();
 
   if (text_frame->HasColor()) {
@@ -1196,6 +1239,10 @@ void FirstPassDispatcher::drawDisplayList(
     DlScalar opacity) {
   [[maybe_unused]] size_t stack_depth = stack_.size();
   save();
+  if (opacity < SK_Scalar1) {
+    // Matches the saveLayer that DlDispatcherBase uses to apply the opacity.
+    PushLayer(display_list.get());
+  }
   Paint old_paint = paint_;
   paint_ = Paint{};
   bool old_has_image_filter = has_image_filter_;
@@ -1278,6 +1325,185 @@ void FirstPassDispatcher::setImageFilter(const flutter::DlImageFilter* filter) {
   }
 }
 
+std::unordered_map<const void*, bool>
+FirstPassDispatcher::TakeLayerAntialiasing() {
+  FML_DCHECK(layers_.empty());
+  return std::move(layer_antialiasing_);
+}
+
+void FirstPassDispatcher::PushLayer(const void* key) {
+  layers_.push_back({.key = key, .depth = stack_.size()});
+}
+
+void FirstPassDispatcher::MarkLayerNeedsAntialiasing() {
+  if (!layers_.empty()) {
+    layers_.back().needs_antialiasing = true;
+  }
+}
+
+// An edge on a device pixel boundary covers all samples of a pixel or none,
+// so it rasterizes the same with and without multisampling. Edges outside
+// the rounded-out cull rect are never rasterized (layer textures are rounded
+// out to whole pixels, so a fractional cull edge is still drawn). Anything
+// else marks the layer.
+void FirstPassDispatcher::CheckRectEdges(const Rect& rect) {
+  static constexpr Scalar kTolerance = 1.0f / 256;
+  auto on_pixel = [](Scalar v) {
+    return std::abs(v - std::round(v)) <= kTolerance;
+  };
+  if (!matrix_.IsAligned2D()) {
+    MarkLayerNeedsAntialiasing();
+    return;
+  }
+  const Rect device = rect.TransformBounds(matrix_);
+  const Rect cull = Rect::RoundOut(cull_rect_state_.back());
+  if (!((device.GetLeft() <= cull.GetLeft() || on_pixel(device.GetLeft())) &&
+        (device.GetTop() <= cull.GetTop() || on_pixel(device.GetTop())) &&
+        (device.GetRight() >= cull.GetRight() ||
+         on_pixel(device.GetRight())) &&
+        (device.GetBottom() >= cull.GetBottom() ||
+         on_pixel(device.GetBottom())))) {
+    MarkLayerNeedsAntialiasing();
+  }
+}
+
+void FirstPassDispatcher::CheckDrawRect(const Rect& rect) {
+  if (has_image_filter_) {
+    MarkLayerNeedsAntialiasing();
+  } else {
+    CheckRectEdges(rect);
+  }
+}
+
+void FirstPassDispatcher::drawColor(flutter::DlColor color,
+                                    flutter::DlBlendMode mode) {}
+
+void FirstPassDispatcher::drawPaint() {
+  if (has_image_filter_) {
+    MarkLayerNeedsAntialiasing();
+  }
+}
+
+void FirstPassDispatcher::drawLine(const DlPoint& p0, const DlPoint& p1) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawDashedLine(const DlPoint& p0,
+                                         const DlPoint& p1,
+                                         DlScalar on_length,
+                                         DlScalar off_length) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawRect(const DlRect& rect) {
+  if (paint_.style == Paint::Style::kFill) {
+    CheckDrawRect(rect);
+    return;
+  }
+  // A miter-joined stroke keeps square corners, so its outer and inner
+  // outlines are rectangles too.
+  Scalar half_width = paint_.stroke.width / 2;
+  if (half_width > 0 && paint_.stroke.join == Join::kMiter &&
+      paint_.stroke.miter_limit >= kSqrt2) {
+    CheckDrawRect(rect.Expand(half_width));
+    CheckDrawRect(rect.Expand(-half_width));
+    return;
+  }
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawOval(const DlRect& bounds) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawCircle(const DlPoint& center, DlScalar radius) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawRoundRect(const DlRoundRect& rrect) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawDiffRoundRect(const DlRoundRect& outer,
+                                            const DlRoundRect& inner) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawRoundSuperellipse(
+    const DlRoundSuperellipse& rse) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawPath(const DlPath& path) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawArc(const DlRect& oval_bounds,
+                                  DlScalar start_degrees,
+                                  DlScalar sweep_degrees,
+                                  bool use_center) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawPoints(flutter::DlPointMode mode,
+                                     uint32_t count,
+                                     const DlPoint points[]) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawVertices(
+    const std::shared_ptr<flutter::DlVertices>& vertices,
+    flutter::DlBlendMode dl_mode) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawImage(const sk_sp<flutter::DlImage> image,
+                                    const DlPoint& point,
+                                    flutter::DlImageSampling sampling,
+                                    bool render_with_attributes) {
+  CheckDrawRect(Rect::MakeXYWH(point.x, point.y, image->GetSize().width,
+                                image->GetSize().height));
+}
+
+void FirstPassDispatcher::drawImageRect(
+    const sk_sp<flutter::DlImage> image,
+    const DlRect& src,
+    const DlRect& dst,
+    flutter::DlImageSampling sampling,
+    bool render_with_attributes,
+    flutter::DlSrcRectConstraint constraint) {
+  CheckDrawRect(dst);
+}
+
+void FirstPassDispatcher::drawImageNine(const sk_sp<flutter::DlImage> image,
+                                        const DlIRect& center,
+                                        const DlRect& dst,
+                                        flutter::DlFilterMode filter,
+                                        bool render_with_attributes) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawAtlas(const sk_sp<flutter::DlImage> atlas,
+                                    const RSTransform xform[],
+                                    const DlRect tex[],
+                                    const flutter::DlColor colors[],
+                                    int count,
+                                    flutter::DlBlendMode mode,
+                                    flutter::DlImageSampling sampling,
+                                    const DlRect* cull_rect,
+                                    bool render_with_attributes) {
+  MarkLayerNeedsAntialiasing();
+}
+
+void FirstPassDispatcher::drawShadow(const DlPath& path,
+                                     const flutter::DlColor color,
+                                     const DlScalar elevation,
+                                     bool transparent_occluder,
+                                     DlScalar dpr) {
+  // ponytail: shadows are treated as edged; check them if they matter.
+  MarkLayerNeedsAntialiasing();
+}
+
 namespace {
 bool PixelFormatSupportsMSAA(std::optional<PixelFormat> pixel_format) {
   return !pixel_format.has_value();
@@ -1355,6 +1581,7 @@ std::shared_ptr<Texture> DisplayListToTexture(
   );
   const auto& [data, count] = collector.TakeBackdropData();
   impeller_dispatcher.SetBackdropData(data, count);
+  impeller_dispatcher.SetLayerAntialiasing(collector.TakeLayerAntialiasing());
   context.GetTextShadowCache().MarkFrameStart();
   fml::ScopedCleanupClosure cleanup([&] {
     if (reset_host_buffer) {
@@ -1403,6 +1630,7 @@ bool RenderToTarget(ContentContext& context,
   );
   const auto& [data, count] = collector.TakeBackdropData();
   impeller_dispatcher.SetBackdropData(data, count);
+  impeller_dispatcher.SetLayerAntialiasing(collector.TakeLayerAntialiasing());
   context.GetTextShadowCache().MarkFrameStart();
   fml::ScopedCleanupClosure cleanup([&] {
     if (reset_host_buffer) {

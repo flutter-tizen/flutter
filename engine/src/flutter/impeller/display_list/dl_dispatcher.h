@@ -296,6 +296,11 @@ class DlDispatcherBase : public flutter::DlOpReceiver {
  protected:
   Paint paint_;
   Matrix initial_matrix_;
+  // Per saveLayer: whether its content needs multisampling. Filled by
+  // FirstPassDispatcher; layers that are missing stay multisampled.
+  std::unordered_map<const void*, bool> layer_antialiasing_;
+
+  bool LayerNeedsAntialiasing(const void* layer_key) const;
 
   static void SimplifyOrDrawPath(Canvas& canvas,
                                  const DlPath& cache,
@@ -316,6 +321,11 @@ class CanvasDlDispatcher : public DlDispatcherBase {
                      IRect32 cull_rect);
 
   ~CanvasDlDispatcher() = default;
+
+  void SetLayerAntialiasing(
+      std::unordered_map<const void*, bool> layer_antialiasing) {
+    layer_antialiasing_ = std::move(layer_antialiasing);
+  }
 
   void SetBackdropData(std::unordered_map<int64_t, BackdropData> backdrop,
                        size_t backdrop_count);
@@ -431,6 +441,62 @@ class FirstPassDispatcher : public flutter::IgnoreAttributeDispatchHelper,
   void drawDisplayList(const sk_sp<flutter::DisplayList> display_list,
                        DlScalar opacity) override;
 
+  // The draw overrides below only decide which saveLayers need
+  // multisampling.
+  void drawColor(flutter::DlColor color, flutter::DlBlendMode mode) override;
+  void drawPaint() override;
+  void drawLine(const DlPoint& p0, const DlPoint& p1) override;
+  void drawDashedLine(const DlPoint& p0,
+                      const DlPoint& p1,
+                      DlScalar on_length,
+                      DlScalar off_length) override;
+  void drawRect(const DlRect& rect) override;
+  void drawOval(const DlRect& bounds) override;
+  void drawCircle(const DlPoint& center, DlScalar radius) override;
+  void drawRoundRect(const DlRoundRect& rrect) override;
+  void drawDiffRoundRect(const DlRoundRect& outer,
+                         const DlRoundRect& inner) override;
+  void drawRoundSuperellipse(const DlRoundSuperellipse& rse) override;
+  void drawPath(const DlPath& path) override;
+  void drawArc(const DlRect& oval_bounds,
+               DlScalar start_degrees,
+               DlScalar sweep_degrees,
+               bool use_center) override;
+  void drawPoints(flutter::DlPointMode mode,
+                  uint32_t count,
+                  const DlPoint points[]) override;
+  void drawVertices(const std::shared_ptr<flutter::DlVertices>& vertices,
+                    flutter::DlBlendMode dl_mode) override;
+  void drawImage(const sk_sp<flutter::DlImage> image,
+                 const DlPoint& point,
+                 flutter::DlImageSampling sampling,
+                 bool render_with_attributes) override;
+  void drawImageRect(const sk_sp<flutter::DlImage> image,
+                     const DlRect& src,
+                     const DlRect& dst,
+                     flutter::DlImageSampling sampling,
+                     bool render_with_attributes,
+                     flutter::DlSrcRectConstraint constraint) override;
+  void drawImageNine(const sk_sp<flutter::DlImage> image,
+                     const DlIRect& center,
+                     const DlRect& dst,
+                     flutter::DlFilterMode filter,
+                     bool render_with_attributes) override;
+  void drawAtlas(const sk_sp<flutter::DlImage> atlas,
+                 const RSTransform xform[],
+                 const DlRect tex[],
+                 const flutter::DlColor colors[],
+                 int count,
+                 flutter::DlBlendMode mode,
+                 flutter::DlImageSampling sampling,
+                 const DlRect* cull_rect,
+                 bool render_with_attributes) override;
+  void drawShadow(const DlPath& path,
+                  const flutter::DlColor color,
+                  const DlScalar elevation,
+                  bool transparent_occluder,
+                  DlScalar dpr) override;
+
   // |flutter::DlOpReceiver|
   void setDrawStyle(flutter::DlDrawStyle style) override;
 
@@ -455,8 +521,22 @@ class FirstPassDispatcher : public flutter::IgnoreAttributeDispatchHelper,
   std::pair<std::unordered_map<int64_t, BackdropData>, size_t>
   TakeBackdropData();
 
+  /// Whether each saveLayer (keyed by its op's bounds, or by the nested
+  /// DisplayList for drawDisplayList with opacity) needs multisampling.
+  std::unordered_map<const void*, bool> TakeLayerAntialiasing();
+
  private:
+  struct LayerState {
+    const void* key;
+    size_t depth;
+    bool needs_antialiasing = false;
+  };
+
   const Rect GetCurrentLocalCullingBounds() const;
+  void PushLayer(const void* key);
+  void MarkLayerNeedsAntialiasing();
+  void CheckRectEdges(const Rect& rect);
+  void CheckDrawRect(const Rect& rect);
 
   const ContentContext& renderer_;
   Matrix matrix_;
@@ -467,6 +547,8 @@ class FirstPassDispatcher : public flutter::IgnoreAttributeDispatchHelper,
   bool has_image_filter_ = false;
   size_t backdrop_count_ = 0;
   Paint paint_;
+  std::vector<LayerState> layers_;
+  std::unordered_map<const void*, bool> layer_antialiasing_;
 };
 
 /// Render the provided display list to a texture with the given size.

@@ -190,7 +190,8 @@ static const constexpr RenderTarget::AttachmentConfig kDefaultStencilConfig =
 static std::unique_ptr<EntityPassTarget> CreateRenderTarget(
     ContentContext& renderer,
     ISize size,
-    const Color& clear_color) {
+    const Color& clear_color,
+    bool msaa = true) {
   const std::shared_ptr<Context>& context = renderer.GetContext();
 
   /// All of the load/store actions are managed by `InlinePassContext` when
@@ -199,7 +200,11 @@ static std::unique_ptr<EntityPassTarget> CreateRenderTarget(
   /// changed for the lifetime of the textures.
 
   RenderTarget target;
-  if (context->GetCapabilities()->SupportsOffscreenMSAA()) {
+  // Implicit MSAA resolves in tile memory and costs little, so single-sampled
+  // layers only pay off for explicit MSAA (e.g. Mesa v3d, not Mali).
+  const auto& caps = context->GetCapabilities();
+  if ((msaa || caps->SupportsImplicitResolvingMSAA()) &&
+      caps->SupportsOffscreenMSAA()) {
     target = renderer.GetRenderTargetCache()->CreateOffscreenMSAA(
         /*context=*/*context,
         /*size=*/size,
@@ -1833,7 +1838,8 @@ void Canvas::SaveLayer(const Paint& paint,
                        ContentBoundsPromise bounds_promise,
                        uint32_t total_content_depth,
                        bool can_distribute_opacity,
-                       std::optional<int64_t> backdrop_id) {
+                       std::optional<int64_t> backdrop_id,
+                       bool needs_antialiasing) {
   TRACE_EVENT0("flutter", "Canvas::saveLayer");
   if (IsSkipping()) {
     return SkipUntilMatchingRestore(total_content_depth);
@@ -2026,7 +2032,8 @@ void Canvas::SaveLayer(const Paint& paint,
       LazyRenderingConfig(renderer_,                                    //
                           CreateRenderTarget(renderer_,                 //
                                              subpass_size,              //
-                                             Color::BlackTransparent()  //
+                                             Color::BlackTransparent(),  //
+                                             needs_antialiasing         //
                                              )));
   save_layer_state_.push_back(SaveLayerState{
       paint_copy, subpass_coverage.Shift(-coverage_origin_adjustment)});
@@ -2244,10 +2251,6 @@ bool Canvas::AttemptBlurredTextOptimization(
   }
 }
 
-// If the text point size * max basis XY is larger than this value,
-// render the text as paths (if available) for faster and higher
-// fidelity rendering. This is a somewhat arbitrary cutoff
-static constexpr Scalar kMaxTextScale = 250;
 
 void Canvas::DrawTextFrame(const std::shared_ptr<TextFrame>& text_frame,
                            Point position,

@@ -164,7 +164,15 @@ class Canvas {
       ContentBoundsPromise bounds_promise = ContentBoundsPromise::kUnknown,
       uint32_t total_content_depth = kMaxDepth,
       bool can_distribute_opacity = false,
-      std::optional<int64_t> backdrop_id = std::nullopt);
+      std::optional<int64_t> backdrop_id = std::nullopt,
+      // False when every edge in the layer content falls on a pixel boundary
+      // (see FirstPassDispatcher), so a single-sampled layer renders the same.
+      bool needs_antialiasing = true);
+
+  // If the text point size * max basis XY is larger than this value,
+  // render the text as paths (if available) for faster and higher
+  // fidelity rendering. This is a somewhat arbitrary cutoff
+  static constexpr Scalar kMaxTextScale = 250;
 
   bool Restore();
 
