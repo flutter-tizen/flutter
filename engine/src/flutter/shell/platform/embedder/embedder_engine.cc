@@ -286,6 +286,12 @@ bool EmbedderEngine::RunTask(const FlutterTask* task) {
   if (task == nullptr) {
     return false;
   }
+  // A spawned engine shares the thread host of the engine it was spawned
+  // from, which may be null if that engine had no engine-managed or
+  // registered custom task runners.
+  if (!thread_host_) {
+    return false;
+  }
   auto result = thread_host_->PostTask(reinterpret_cast<intptr_t>(task->runner),
                                        task->task);
   // If the UI and platform threads are separate, the microtask queue is
@@ -350,10 +356,12 @@ Shell& EmbedderEngine::GetShell() {
 }
 
 EmbedderEngine::EmbedderEngine(
+    std::shared_ptr<EmbedderThreadHost> thread_host,
     const flutter::TaskRunners& task_runners,
     std::unique_ptr<Shell> running_shell,
     std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
-    : task_runners_(task_runners),
+    : thread_host_(std::move(thread_host)),
+      task_runners_(task_runners),
       run_configuration_(nullptr),
       shell_(std::move(running_shell)),
       external_texture_resolver_(std::move(external_texture_resolver)) {}
@@ -376,9 +384,14 @@ std::unique_ptr<EmbedderEngine> EmbedderEngine::Spawn(
   if (!spawned_shell) {
     return nullptr;
   }
-  auto spawned_engine =
-      std::make_unique<EmbedderEngine>(task_runners_, std::move(spawned_shell),
-                                       std::move(external_texture_resolver));
+  auto spawned_engine = std::make_unique<EmbedderEngine>(
+      thread_host_, task_runners_, std::move(spawned_shell),
+      std::move(external_texture_resolver));
+  // The shell is already running, but it does not have a rendering surface
+  // yet. Create it now, mirroring the NotifyCreated step of the normal
+  // FlutterEngineRunInitialized sequence; there is no public API through
+  // which the embedder could do this for a spawned engine later.
+  spawned_engine->NotifyCreated();
   spawned_engine->SetSpawnSources(renderer_config_, project_args_);
   return spawned_engine;
 }

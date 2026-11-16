@@ -3893,7 +3893,6 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
     return LOG_EMBEDDER_ERROR(kInvalidArguments,
                               "The engine out parameter was missing.");
   }
-  *engine_out = nullptr;
 
   const char* entrypoint = nullptr;
   const char* entrypoint_library = nullptr;
@@ -3994,6 +3993,11 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
   if (entrypoint_argc > 0) {
     std::vector<std::string> arguments(entrypoint_argc);
     for (int i = 0; i < entrypoint_argc; ++i) {
+      if (entrypoint_args[i] == nullptr) {
+        return LOG_EMBEDDER_ERROR(
+            kInvalidArguments,
+            "The dart_entrypoint_args array contained a null entry.");
+      }
       arguments[i] = std::string{entrypoint_args[i]};
     }
     run_configuration.SetEntrypointArgs(std::move(arguments));

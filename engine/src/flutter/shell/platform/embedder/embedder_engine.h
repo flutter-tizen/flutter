@@ -99,9 +99,11 @@ class EmbedderEngine {
   /// @brief      Creates an embedder engine that adopts an already running
   ///             shell produced by |Shell::Spawn|. The adopted shell shares
   ///             its task runners (and therefore its threads) with the shell
-  ///             it was spawned from, so no thread host is owned.
+  ///             it was spawned from, and shares the spawning engine's thread
+  ///             host (which may be null) instead of owning one.
   ///
-  EmbedderEngine(const TaskRunners& task_runners,
+  EmbedderEngine(std::shared_ptr<EmbedderThreadHost> thread_host,
+                 const TaskRunners& task_runners,
                  std::unique_ptr<Shell> running_shell,
                  std::unique_ptr<EmbedderExternalTextureResolver>
                      external_texture_resolver);
@@ -134,7 +136,10 @@ class EmbedderEngine {
   const FlutterProjectArgs& GetSpawnProjectArgs() const;
 
  private:
-  std::unique_ptr<EmbedderThreadHost> thread_host_;
+  // Shared with engines spawned from this engine so that they can run
+  // tasks posted to the (shared) task runners. May be null when the engine
+  // has no engine-managed or registered custom task runners.
+  std::shared_ptr<EmbedderThreadHost> thread_host_;
   TaskRunners task_runners_;
   RunConfiguration run_configuration_;
   std::unique_ptr<ShellArgs> shell_args_;

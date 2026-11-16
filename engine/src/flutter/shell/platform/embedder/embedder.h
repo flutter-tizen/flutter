@@ -3900,12 +3900,16 @@ typedef struct {
 ///             considerably cheaper to create and run than an independent
 ///             engine.
 ///
-///             The spawned engine is returned in a running state: the shell
-///             is launched and the root isolate is started with the Dart
-///             entrypoint described by |spawn_config| before this call
-///             returns. |FlutterEngineInitialize|, |FlutterEngineRun| and
-///             |FlutterEngineRunInitialized| must not be called on a spawned
-///             engine.
+///             The spawned engine is returned with its shell launched and
+///             its root isolate startup queued on the shared UI task
+///             runner: the root isolate is created and the Dart entrypoint
+///             described by |spawn_config| starts running asynchronously
+///             after this call returns. The parent's
+///             |root_isolate_create_callback| (handed the parent engine's
+///             user data) signals when the spawned engine's root isolate
+///             has been created. |FlutterEngineInitialize|,
+///             |FlutterEngineRun| and |FlutterEngineRunInitialized| must
+///             not be called on a spawned engine.
 ///
 ///             The parent engine must be running (i.e. it must have been
 ///             launched with |FlutterEngineRun| or
@@ -3922,12 +3926,19 @@ typedef struct {
 ///
 ///             The spawned engine reuses the callbacks supplied via
 ///             |FlutterProjectArgs| and |FlutterRendererConfig| when the
-///             parent engine was initialized, except that every callback is
-///             handed the |spawn_config.user_data| baton instead of the
-///             parent engine's user data. Consequently, those callbacks, the
-///             compositor (if any) and any data referenced from the parent's
-///             renderer configuration must remain valid until the spawned
-///             engine is shut down.
+///             parent engine was initialized. The renderer and platform
+///             callbacks are handed the |spawn_config.user_data| baton
+///             instead of the parent engine's user data. Consequently,
+///             those callbacks, the compositor (if any) and any data
+///             referenced from the parent's renderer configuration must
+///             remain valid until the spawned engine is shut down. Note
+///             that the settings-level |root_isolate_create_callback| and
+///             |log_message_callback| are inherited from the parent engine
+///             as-is and are invoked with the parent engine's user data,
+///             and that the callbacks of the |FlutterCompositor| (if any)
+///             are invoked with the compositor's own
+///             |FlutterCompositor.user_data| rather than the spawn's user
+///             data baton.
 ///
 ///             A spawned engine may itself be used to spawn further engines.
 ///             Make all |FlutterEngineSpawn| calls for a given parent engine
@@ -3938,8 +3949,8 @@ typedef struct {
 /// @param[in]  spawn_config  The spawn configuration. May be null, in which
 ///                           case all defaults are used: the "main" method in
 ///                           the root library is run with no arguments, the
-///                           initial route is "/", and the parent engine's
-///                           user data baton is reused.
+///                           initial route is "/", and the spawned engine's
+///                           callbacks are called with a null user data.
 /// @param[out] engine_out    The spawned engine instance on success.
 ///                            Unchanged on failure.
 ///
