@@ -3709,13 +3709,15 @@ FlutterEngineResult FlutterEngineSetNextFrameCallback(
 ///             engine.
 ///
 ///             The spawned engine is returned with its shell launched and
-///             its root isolate startup queued on the shared UI task
-///             runner: the root isolate is created and the Dart entrypoint
-///             described by |spawn_config| starts running asynchronously
-///             after this call returns. The parent's
+///             its root isolate startup scheduled on the shared UI task
+///             runner. The root isolate may be created, and the Dart
+///             entrypoint described by |spawn_config| may start running,
+///             before or after this call returns. The parent's
 ///             |root_isolate_create_callback| (handed the parent engine's
 ///             user data) signals when the spawned engine's root isolate
-///             has been created. |FlutterEngineInitialize|,
+///             has been created and may be invoked before this call returns
+///             and before |engine_out| has been populated.
+///             |FlutterEngineInitialize|,
 ///             |FlutterEngineRun| and |FlutterEngineRunInitialized| must
 ///             not be called on a spawned engine.
 ///
