@@ -1120,7 +1120,7 @@ TEST_F(EmbedderTest,
       });
 
   context.GetCompositor().SetPlatformViewRendererCallback(
-      [&](const FlutterLayer& layer, GrDirectContext*
+      [&](const FlutterLayer& layer, GrDirectContext *
           /* don't use because software compositor */) -> sk_sp<SkImage> {
         auto surface = CreateRenderSurface(
             layer, nullptr /* null because software compositor */);
@@ -1261,7 +1261,7 @@ TEST_F(EmbedderTest, NoLayerCreatedForTransparentOverlayOnTopOfPlatformLayer) {
       });
 
   context.GetCompositor().SetPlatformViewRendererCallback(
-      [&](const FlutterLayer& layer, GrDirectContext*
+      [&](const FlutterLayer& layer, GrDirectContext *
           /* don't use because software compositor */) -> sk_sp<SkImage> {
         auto surface = CreateRenderSurface(
             layer, nullptr /* null because software compositor */);
@@ -1398,7 +1398,7 @@ TEST_F(EmbedderTest, NoLayerCreatedForNoOverlayOnTopOfPlatformLayer) {
       });
 
   context.GetCompositor().SetPlatformViewRendererCallback(
-      [&](const FlutterLayer& layer, GrDirectContext*
+      [&](const FlutterLayer& layer, GrDirectContext *
           /* don't use because software compositor */) -> sk_sp<SkImage> {
         auto surface = CreateRenderSurface(
             layer, nullptr /* null because software compositor */);
@@ -4393,6 +4393,78 @@ TEST_F(EmbedderTest, PlatformThreadIsolatesWithCustomPlatformTaskRunner) {
 // ---------------------------------------------------------------------------
 // Tests for |FlutterEngineSpawn|.
 // ---------------------------------------------------------------------------
+
+TEST_F(EmbedderTest, SpawnSourcesDeepCopyVulkanData) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto engine = builder.LaunchEngine();
+  ASSERT_TRUE(engine.is_valid());
+  auto* embedder_engine = reinterpret_cast<EmbedderEngine*>(engine.get());
+
+  const char** original_instance_name_pointers = nullptr;
+  const char** original_device_name_pointers = nullptr;
+  const char* original_instance_name = nullptr;
+  const char* original_device_name = nullptr;
+  const char* original_cache_path = nullptr;
+  {
+    std::vector<std::string> instance_names = {
+        "VK_KHR_test_instance_one",
+        "VK_KHR_test_instance_two",
+    };
+    std::vector<std::string> device_names = {"VK_KHR_test_device"};
+    std::vector<const char*> instance_name_pointers;
+    std::vector<const char*> device_name_pointers;
+    for (const auto& name : instance_names) {
+      instance_name_pointers.push_back(name.c_str());
+    }
+    for (const auto& name : device_names) {
+      device_name_pointers.push_back(name.c_str());
+    }
+    std::string cache_path = "/tmp/flutter_vulkan_cache";
+
+    FlutterRendererConfig renderer_config = {};
+    renderer_config.type = kVulkan;
+    renderer_config.vulkan.struct_size = sizeof(FlutterVulkanRendererConfig);
+    renderer_config.vulkan.enabled_instance_extension_count =
+        instance_name_pointers.size();
+    renderer_config.vulkan.enabled_instance_extensions =
+        instance_name_pointers.data();
+    renderer_config.vulkan.enabled_device_extension_count =
+        device_name_pointers.size();
+    renderer_config.vulkan.enabled_device_extensions =
+        device_name_pointers.data();
+    renderer_config.vulkan.cache_path = cache_path.c_str();
+
+    original_instance_name_pointers = instance_name_pointers.data();
+    original_device_name_pointers = device_name_pointers.data();
+    original_instance_name = instance_names[0].c_str();
+    original_device_name = device_names[0].c_str();
+    original_cache_path = cache_path.c_str();
+
+    FlutterProjectArgs project_args = {};
+    embedder_engine->SetSpawnSources(renderer_config, project_args);
+  }
+
+  const auto& retained = embedder_engine->GetSpawnRendererConfig().vulkan;
+  EXPECT_NE(retained.enabled_instance_extensions,
+            original_instance_name_pointers);
+  EXPECT_NE(retained.enabled_device_extensions, original_device_name_pointers);
+  EXPECT_NE(retained.cache_path, original_cache_path);
+  ASSERT_EQ(retained.enabled_instance_extension_count, 2u);
+  ASSERT_EQ(retained.enabled_device_extension_count, 1u);
+  ASSERT_NE(retained.enabled_instance_extensions, nullptr);
+  ASSERT_NE(retained.enabled_device_extensions, nullptr);
+  ASSERT_NE(retained.cache_path, nullptr);
+  EXPECT_NE(retained.enabled_instance_extensions[0], original_instance_name);
+  EXPECT_NE(retained.enabled_device_extensions[0], original_device_name);
+  EXPECT_STREQ(retained.enabled_instance_extensions[0],
+               "VK_KHR_test_instance_one");
+  EXPECT_STREQ(retained.enabled_instance_extensions[1],
+               "VK_KHR_test_instance_two");
+  EXPECT_STREQ(retained.enabled_device_extensions[0], "VK_KHR_test_device");
+  EXPECT_STREQ(retained.cache_path, "/tmp/flutter_vulkan_cache");
+}
 
 TEST_F(EmbedderTest, CanSpawnEngineFromRunningEngine) {
   auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
