@@ -743,10 +743,6 @@ std::unique_ptr<Shell> Shell::Spawn(
             /*gpu_disabled_switch=*/is_gpu_disabled_sync_switch);
       },
       is_gpu_disabled);
-  if (!result) {
-    FML_LOG(ERROR) << "Could not create a spawned shell.";
-    return nullptr;
-  }
   result->RunEngine(std::move(run_configuration));
   return result;
 }

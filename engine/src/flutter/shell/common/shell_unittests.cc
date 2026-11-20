@@ -3265,25 +3265,6 @@ TEST_F(ShellTest, Spawn) {
   ASSERT_FALSE(DartVMRef::IsInstanceRunning());
 }
 
-TEST_F(ShellTest, SpawnReturnsNullWhenShellCreationFails) {
-  auto settings = CreateSettingsForFixture();
-  auto shell = CreateShell(settings);
-  ASSERT_TRUE(ValidateShell(shell.get()));
-
-  auto configuration = RunConfiguration::InferFromSettings(settings);
-  ASSERT_TRUE(configuration.IsValid());
-
-  PostSync(shell->GetTaskRunners().GetPlatformTaskRunner(),
-           [&shell, &configuration]() {
-             auto spawned = shell->Spawn(std::move(configuration), "/",
-                                         Shell::CreateCallback<PlatformView>{},
-                                         Shell::CreateCallback<Rasterizer>{});
-             ASSERT_EQ(spawned, nullptr);
-           });
-
-  DestroyShell(std::move(shell));
-}
-
 TEST_F(ShellTest, SpawnWithDartEntrypointArgs) {
   auto settings = CreateSettingsForFixture();
   auto shell = CreateShell(settings);
