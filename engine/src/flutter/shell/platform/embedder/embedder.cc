@@ -3885,6 +3885,7 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
                                        const FlutterSpawnConfig* spawn_config,
                                        FLUTTER_API_SYMBOL(FlutterEngine) *
                                            engine_out) {
+  // Step 1: Validate the arguments and read the spawn configuration.
   if (engine == nullptr) {
     return LOG_EMBEDDER_ERROR(kInvalidArguments, "Engine handle was invalid.");
   }
@@ -3910,8 +3911,17 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
     spawn_user_data = SAFE_ACCESS(spawn_config, user_data, nullptr);
   }
 
-  if (entrypoint_library != nullptr && entrypoint_library[0] != '\0' &&
-      (entrypoint == nullptr || entrypoint[0] == '\0')) {
+  auto dart_entrypoint = std::string{};
+  if (entrypoint != nullptr) {
+    dart_entrypoint = std::string{entrypoint};
+  }
+
+  auto dart_entrypoint_library = std::string{};
+  if (entrypoint_library != nullptr) {
+    dart_entrypoint_library = std::string{entrypoint_library};
+  }
+
+  if (!dart_entrypoint_library.empty() && dart_entrypoint.empty()) {
     return LOG_EMBEDDER_ERROR(
         kInvalidArguments,
         "A Dart entrypoint must be specified when an entrypoint library is "
@@ -3925,6 +3935,8 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
         "dart_entrypoint_argc was set, but dart_entrypoint_args was null.");
   }
 
+  // Step 2: Get the parent settings, project arguments, renderer configuration,
+  // and task runners.
   auto embedder_engine = reinterpret_cast<flutter::EmbedderEngine*>(engine);
   if (!embedder_engine->IsValid()) {
     return LOG_EMBEDDER_ERROR(
@@ -3939,6 +3951,8 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
   const FlutterRendererConfig& renderer_config =
       embedder_engine->GetSpawnRendererConfig();
 
+  // Step 3: Build the platform and rendering callbacks using the spawn's
+  // user data.
   // The callback tables of the spawned engine are built from the same
   // callbacks as the parent engine but are handed the spawn's user data
   // baton so that the embedder can tell the engines apart.
@@ -3976,17 +3990,19 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
   auto external_texture_resolver =
       BuildExternalTextureResolver(&renderer_config, spawn_user_data);
 
+  // Step 4: Build the Dart run configuration in the parent's isolate group.
   // The spawned engine runs in the same isolate group as its parent, so the
   // kernel snapshot already loaded by the group is reused.
   auto run_configuration = flutter::RunConfiguration::InferFromSettings(
       parent_settings, embedder_engine->GetTaskRunners().GetIOTaskRunner(),
       flutter::IsolateLaunchType::kExistingGroup);
 
-  if (entrypoint != nullptr && entrypoint[0] != '\0') {
-    if (entrypoint_library != nullptr) {
-      run_configuration.SetEntrypointAndLibrary(entrypoint, entrypoint_library);
+  if (!dart_entrypoint.empty()) {
+    if (!dart_entrypoint_library.empty()) {
+      run_configuration.SetEntrypointAndLibrary(
+          std::move(dart_entrypoint), std::move(dart_entrypoint_library));
     } else {
-      run_configuration.SetEntrypoint(entrypoint);
+      run_configuration.SetEntrypoint(std::move(dart_entrypoint));
     }
   }
 
@@ -4009,15 +4025,20 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
         "Could not infer the Flutter project to run from the parent engine.");
   }
 
-  std::string route = "/";
-  if (initial_route != nullptr && initial_route[0] != '\0') {
-    route = initial_route;
+  auto route = std::string{};
+  if (initial_route != nullptr) {
+    route = std::string{initial_route};
+  }
+  if (route.empty()) {
+    route = "/";
   }
 
+  // Step 5: Create the child engine and schedule its root isolate startup.
   auto spawned_engine = embedder_engine->Spawn(
       std::move(run_configuration), route, on_create_platform_view,
       on_create_rasterizer, std::move(external_texture_resolver));
 
+  // Step 6: Return the child engine, or an error without modifying engine_out.
   if (!spawned_engine) {
     return LOG_EMBEDDER_ERROR(
         kInternalInconsistency,
