@@ -3928,6 +3928,11 @@ FlutterEngineResult FlutterEngineSpawn(FLUTTER_API_SYMBOL(FlutterEngine) engine,
         "specified.");
   }
 
+  if (entrypoint_argc < 0) {
+    return LOG_EMBEDDER_ERROR(kInvalidArguments,
+                              "dart_entrypoint_argc must not be negative.");
+  }
+
   if (entrypoint_argc > 0 && entrypoint_args == nullptr) {
     return LOG_EMBEDDER_ERROR(
         kInvalidArguments,

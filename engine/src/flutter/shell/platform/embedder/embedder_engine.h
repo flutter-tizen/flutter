@@ -138,10 +138,17 @@ class EmbedderEngine {
   const FlutterProjectArgs& GetSpawnProjectArgs() const;
 
  private:
+  void RegisterMicrotaskFlushCallback();
+  void UnregisterMicrotaskFlushCallback();
+
+  // True only for the root engine that owns the lifetime and invalidation of
+  // the shared thread host. Spawned engines merely hold a shared reference.
+  const bool owns_thread_host_;
   // Shared with engines spawned from this engine so that they can run
   // tasks posted to the (shared) task runners. May be null when the engine
   // has no engine-managed or registered custom task runners.
   std::shared_ptr<EmbedderThreadHost> thread_host_;
+  uint64_t microtask_flush_callback_id_ = 0;
   TaskRunners task_runners_;
   RunConfiguration run_configuration_;
   std::unique_ptr<ShellArgs> shell_args_;

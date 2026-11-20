@@ -56,7 +56,8 @@ EmbedderEngine::EmbedderEngine(
     const Shell::CreateCallback<PlatformView>& on_create_platform_view,
     const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
     std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
-    : thread_host_(std::move(thread_host)),
+    : owns_thread_host_(true),
+      thread_host_(std::move(thread_host)),
       task_runners_(task_runners),
       run_configuration_(std::move(run_configuration)),
       shell_args_(std::make_unique<ShellArgs>(settings,
@@ -64,7 +65,35 @@ EmbedderEngine::EmbedderEngine(
                                               on_create_rasterizer)),
       external_texture_resolver_(std::move(external_texture_resolver)) {}
 
-EmbedderEngine::~EmbedderEngine() = default;
+EmbedderEngine::~EmbedderEngine() {
+  UnregisterMicrotaskFlushCallback();
+}
+
+void EmbedderEngine::RegisterMicrotaskFlushCallback() {
+  if (microtask_flush_callback_id_ != 0 || !thread_host_ || !shell_) {
+    return;
+  }
+  const auto& ui_task_runner = task_runners_.GetUITaskRunner();
+  if (!ui_task_runner || ui_task_runner->GetTaskQueueId().is_valid()) {
+    return;
+  }
+
+  auto engine = shell_->GetEngine();
+  microtask_flush_callback_id_ =
+      thread_host_->RegisterMicrotaskFlushCallback([engine]() {
+        if (engine) {
+          engine->FlushMicrotaskQueue();
+        }
+      });
+}
+
+void EmbedderEngine::UnregisterMicrotaskFlushCallback() {
+  if (thread_host_ && microtask_flush_callback_id_ != 0) {
+    thread_host_->UnregisterMicrotaskFlushCallback(
+        microtask_flush_callback_id_);
+  }
+  microtask_flush_callback_id_ = 0;
+}
 
 bool EmbedderEngine::LaunchShell() {
   if (!shell_args_) {
@@ -84,16 +113,26 @@ bool EmbedderEngine::LaunchShell() {
   // shell again.
   shell_args_.reset();
 
+  if (shell_) {
+    RegisterMicrotaskFlushCallback();
+  }
+
   return IsValid();
 }
 
 bool EmbedderEngine::CollectShell() {
+  UnregisterMicrotaskFlushCallback();
   shell_.reset();
   return IsValid();
 }
 
 void EmbedderEngine::CollectThreadHost() {
   if (!thread_host_) {
+    return;
+  }
+
+  if (!owns_thread_host_) {
+    thread_host_.reset();
     return;
   }
 
@@ -321,15 +360,13 @@ bool EmbedderEngine::RunTask(const FlutterTask* task) {
   }
   auto result = thread_host_->PostTask(reinterpret_cast<intptr_t>(task->runner),
                                        task->task);
-  // If the UI and platform threads are separate, the microtask queue is
-  // flushed through MessageLoopTaskQueues observer.
-  // If the UI and platform threads are merged, the UI task runner has no
-  // associated task queue, and microtasks need to be flushed manually
-  // after running the task.
-  if (result && shell_ && task_runners_.GetUITaskRunner() &&
+  // Engine-managed task queues flush microtasks through
+  // MessageLoopTaskQueues observers. A custom UI task runner has no task
+  // queue, so manually flush every engine that shares this thread host.
+  if (result && thread_host_ && task_runners_.GetUITaskRunner() &&
       task_runners_.GetUITaskRunner()->RunsTasksOnCurrentThread() &&
       !task_runners_.GetUITaskRunner()->GetTaskQueueId().is_valid()) {
-    shell_->FlushMicrotaskQueue();
+    thread_host_->FlushMicrotaskQueues();
   }
 
   return result;
@@ -387,11 +424,20 @@ EmbedderEngine::EmbedderEngine(
     const flutter::TaskRunners& task_runners,
     std::unique_ptr<Shell> running_shell,
     std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
-    : thread_host_(std::move(thread_host)),
+    : owns_thread_host_(false),
+      thread_host_(std::move(thread_host)),
       task_runners_(task_runners),
       run_configuration_(nullptr),
       shell_(std::move(running_shell)),
-      external_texture_resolver_(std::move(external_texture_resolver)) {}
+      external_texture_resolver_(std::move(external_texture_resolver)) {
+  RegisterMicrotaskFlushCallback();
+  if (microtask_flush_callback_id_ != 0) {
+    // Startup may already have queued microtasks before this engine was
+    // registered. Drain those, and any parent microtasks already pending,
+    // after the next task runs on the shared custom UI task runner.
+    task_runners_.GetUITaskRunner()->PostTask([] {});
+  }
+}
 
 std::unique_ptr<EmbedderEngine> EmbedderEngine::Spawn(
     RunConfiguration run_configuration,
