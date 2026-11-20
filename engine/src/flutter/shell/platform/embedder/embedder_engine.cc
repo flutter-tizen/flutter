@@ -5,6 +5,7 @@
 #include "flutter/shell/platform/embedder/embedder_engine.h"
 
 #include "flutter/fml/make_copyable.h"
+#include "flutter/shell/platform/embedder/embedder_struct_macros.h"
 #include "flutter/shell/platform/embedder/vsync_waiter_embedder.h"
 
 namespace flutter {
@@ -21,6 +22,32 @@ struct ShellArgs {
         on_create_rasterizer(std::move(p_on_create_rasterizer)) {}
 };
 
+namespace {
+
+void CopyVulkanExtensionNames(size_t count,
+                              const char* const* source_names,
+                              std::vector<std::string>& names,
+                              std::vector<const char*>& name_pointers) {
+  names.clear();
+  name_pointers.clear();
+  if (source_names == nullptr) {
+    return;
+  }
+
+  names.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    names.emplace_back(source_names[i]);
+  }
+
+  // Build the pointer array only after the string storage is fully populated.
+  name_pointers.reserve(count);
+  for (const auto& name : names) {
+    name_pointers.push_back(name.c_str());
+  }
+}
+
+}  // namespace
+
 EmbedderEngine::EmbedderEngine(
     std::unique_ptr<EmbedderThreadHost> thread_host,
     const flutter::TaskRunners& task_runners,
@@ -29,7 +56,8 @@ EmbedderEngine::EmbedderEngine(
     const Shell::CreateCallback<PlatformView>& on_create_platform_view,
     const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
     std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
-    : thread_host_(std::move(thread_host)),
+    : owns_thread_host_(true),
+      thread_host_(std::move(thread_host)),
       task_runners_(task_runners),
       run_configuration_(std::move(run_configuration)),
       shell_args_(std::make_unique<ShellArgs>(settings,
@@ -37,7 +65,35 @@ EmbedderEngine::EmbedderEngine(
                                               on_create_rasterizer)),
       external_texture_resolver_(std::move(external_texture_resolver)) {}
 
-EmbedderEngine::~EmbedderEngine() = default;
+EmbedderEngine::~EmbedderEngine() {
+  UnregisterMicrotaskFlushCallback();
+}
+
+void EmbedderEngine::RegisterMicrotaskFlushCallback() {
+  if (microtask_flush_callback_id_ != 0 || !thread_host_ || !shell_) {
+    return;
+  }
+  const auto& ui_task_runner = task_runners_.GetUITaskRunner();
+  if (!ui_task_runner || ui_task_runner->GetTaskQueueId().is_valid()) {
+    return;
+  }
+
+  auto engine = shell_->GetEngine();
+  microtask_flush_callback_id_ =
+      thread_host_->RegisterMicrotaskFlushCallback([engine]() {
+        if (engine) {
+          engine->FlushMicrotaskQueue();
+        }
+      });
+}
+
+void EmbedderEngine::UnregisterMicrotaskFlushCallback() {
+  if (thread_host_ && microtask_flush_callback_id_ != 0) {
+    thread_host_->UnregisterMicrotaskFlushCallback(
+        microtask_flush_callback_id_);
+  }
+  microtask_flush_callback_id_ = 0;
+}
 
 bool EmbedderEngine::LaunchShell() {
   if (!shell_args_) {
@@ -57,16 +113,26 @@ bool EmbedderEngine::LaunchShell() {
   // shell again.
   shell_args_.reset();
 
+  if (shell_) {
+    RegisterMicrotaskFlushCallback();
+  }
+
   return IsValid();
 }
 
 bool EmbedderEngine::CollectShell() {
+  UnregisterMicrotaskFlushCallback();
   shell_.reset();
   return IsValid();
 }
 
 void EmbedderEngine::CollectThreadHost() {
   if (!thread_host_) {
+    return;
+  }
+
+  if (!owns_thread_host_) {
+    thread_host_.reset();
     return;
   }
 
@@ -286,17 +352,21 @@ bool EmbedderEngine::RunTask(const FlutterTask* task) {
   if (task == nullptr) {
     return false;
   }
+  // A spawned engine shares the thread host of the engine it was spawned
+  // from, which may be null if that engine had no engine-managed or
+  // registered custom task runners.
+  if (!thread_host_) {
+    return false;
+  }
   auto result = thread_host_->PostTask(reinterpret_cast<intptr_t>(task->runner),
                                        task->task);
-  // If the UI and platform threads are separate, the microtask queue is
-  // flushed through MessageLoopTaskQueues observer.
-  // If the UI and platform threads are merged, the UI task runner has no
-  // associated task queue, and microtasks need to be flushed manually
-  // after running the task.
-  if (result && shell_ && task_runners_.GetUITaskRunner() &&
+  // Engine-managed task queues flush microtasks through
+  // MessageLoopTaskQueues observers. A custom UI task runner has no task
+  // queue, so manually flush every engine that shares this thread host.
+  if (result && thread_host_ && task_runners_.GetUITaskRunner() &&
       task_runners_.GetUITaskRunner()->RunsTasksOnCurrentThread() &&
       !task_runners_.GetUITaskRunner()->GetTaskQueueId().is_valid()) {
-    shell_->FlushMicrotaskQueue();
+    thread_host_->FlushMicrotaskQueues();
   }
 
   return result;
@@ -347,6 +417,169 @@ bool EmbedderEngine::ScheduleFrame() {
 Shell& EmbedderEngine::GetShell() {
   FML_DCHECK(shell_);
   return *shell_.get();
+}
+
+EmbedderEngine::EmbedderEngine(
+    std::shared_ptr<EmbedderThreadHost> thread_host,
+    const flutter::TaskRunners& task_runners,
+    std::unique_ptr<Shell> running_shell,
+    std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver)
+    : owns_thread_host_(false),
+      thread_host_(std::move(thread_host)),
+      task_runners_(task_runners),
+      run_configuration_(nullptr),
+      shell_(std::move(running_shell)),
+      external_texture_resolver_(std::move(external_texture_resolver)) {
+  RegisterMicrotaskFlushCallback();
+  if (microtask_flush_callback_id_ != 0) {
+    // Startup may already have queued microtasks before this engine was
+    // registered. Drain those, and any parent microtasks already pending,
+    // after the next task runs on the shared custom UI task runner.
+    task_runners_.GetUITaskRunner()->PostTask([] {});
+  }
+}
+
+std::unique_ptr<EmbedderEngine> EmbedderEngine::Spawn(
+    RunConfiguration run_configuration,
+    const std::string& initial_route,
+    const Shell::CreateCallback<PlatformView>& on_create_platform_view,
+    const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
+    std::unique_ptr<EmbedderExternalTextureResolver>
+        external_texture_resolver) {
+  // Only an engine that is already running can be spawned from. An engine
+  // that has not run yet still holds the run configuration it was given.
+  if (!IsValid() || run_configuration_.IsValid()) {
+    return nullptr;
+  }
+  std::unique_ptr<Shell> spawned_shell =
+      shell_->Spawn(std::move(run_configuration), initial_route,
+                    on_create_platform_view, on_create_rasterizer);
+  if (!spawned_shell) {
+    return nullptr;
+  }
+  auto spawned_engine = std::make_unique<EmbedderEngine>(
+      thread_host_, task_runners_, std::move(spawned_shell),
+      std::move(external_texture_resolver));
+  // The shell is already running, but it does not have a rendering surface
+  // yet. Create it now, mirroring the NotifyCreated step of the normal
+  // FlutterEngineRunInitialized sequence; there is no public API through
+  // which the embedder could do this for a spawned engine later.
+  spawned_engine->NotifyCreated();
+  spawned_engine->SetSpawnSources(renderer_config_, project_args_);
+  return spawned_engine;
+}
+
+void EmbedderEngine::SetSpawnSources(
+    const FlutterRendererConfig& renderer_config,
+    const FlutterProjectArgs& project_args) {
+  renderer_config_ = {};
+  renderer_config_.type = renderer_config.type;
+  project_args_ = project_args;
+
+#define COPY_RENDERER_FIELD(field) \
+  destination.field = SAFE_ACCESS((&source), field, decltype(source.field)())
+
+  switch (renderer_config.type) {
+    case kOpenGL: {
+      const auto& source = renderer_config.open_gl;
+      auto& destination = renderer_config_.open_gl;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(make_current);
+      COPY_RENDERER_FIELD(clear_current);
+      COPY_RENDERER_FIELD(present);
+      COPY_RENDERER_FIELD(fbo_callback);
+      COPY_RENDERER_FIELD(make_resource_current);
+      COPY_RENDERER_FIELD(fbo_reset_after_present);
+      COPY_RENDERER_FIELD(surface_transformation);
+      COPY_RENDERER_FIELD(gl_proc_resolver);
+      COPY_RENDERER_FIELD(gl_external_texture_frame_callback);
+      COPY_RENDERER_FIELD(fbo_with_frame_info_callback);
+      COPY_RENDERER_FIELD(present_with_info);
+      COPY_RENDERER_FIELD(populate_existing_damage);
+      break;
+    }
+    case kSoftware: {
+      const auto& source = renderer_config.software;
+      auto& destination = renderer_config_.software;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(surface_present_callback);
+      break;
+    }
+    case kMetal: {
+      const auto& source = renderer_config.metal;
+      auto& destination = renderer_config_.metal;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(device);
+      COPY_RENDERER_FIELD(present_command_queue);
+      COPY_RENDERER_FIELD(get_next_drawable_callback);
+      COPY_RENDERER_FIELD(present_drawable_callback);
+      COPY_RENDERER_FIELD(external_texture_frame_callback);
+      break;
+    }
+    case kVulkan: {
+      const auto& source = renderer_config.vulkan;
+      auto& destination = renderer_config_.vulkan;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(version);
+      COPY_RENDERER_FIELD(instance);
+      COPY_RENDERER_FIELD(physical_device);
+      COPY_RENDERER_FIELD(device);
+      COPY_RENDERER_FIELD(queue_family_index);
+      COPY_RENDERER_FIELD(queue);
+      COPY_RENDERER_FIELD(enabled_instance_extension_count);
+      COPY_RENDERER_FIELD(enabled_instance_extensions);
+      COPY_RENDERER_FIELD(enabled_device_extension_count);
+      COPY_RENDERER_FIELD(enabled_device_extensions);
+      COPY_RENDERER_FIELD(get_instance_proc_address_callback);
+      COPY_RENDERER_FIELD(get_next_image_callback);
+      COPY_RENDERER_FIELD(present_image_callback);
+      COPY_RENDERER_FIELD(external_texture_frame_callback);
+      COPY_RENDERER_FIELD(cache_path);
+      break;
+    }
+  }
+
+#undef COPY_RENDERER_FIELD
+
+  if (renderer_config.type != kVulkan) {
+    return;
+  }
+
+  // Copy from the normalized configuration so unavailable fields are not read
+  // from an older, shorter renderer configuration.
+  const auto& vulkan = renderer_config_.vulkan;
+  CopyVulkanExtensionNames(vulkan.enabled_instance_extension_count,
+                           vulkan.enabled_instance_extensions,
+                           vulkan_instance_extension_names_,
+                           vulkan_instance_extension_name_pointers_);
+  CopyVulkanExtensionNames(
+      vulkan.enabled_device_extension_count, vulkan.enabled_device_extensions,
+      vulkan_device_extension_names_, vulkan_device_extension_name_pointers_);
+
+  renderer_config_.vulkan.enabled_instance_extensions =
+      vulkan_instance_extension_name_pointers_.empty()
+          ? nullptr
+          : vulkan_instance_extension_name_pointers_.data();
+  renderer_config_.vulkan.enabled_device_extensions =
+      vulkan_device_extension_name_pointers_.empty()
+          ? nullptr
+          : vulkan_device_extension_name_pointers_.data();
+
+  if (vulkan.cache_path == nullptr) {
+    vulkan_cache_path_.clear();
+    renderer_config_.vulkan.cache_path = nullptr;
+  } else {
+    vulkan_cache_path_ = vulkan.cache_path;
+    renderer_config_.vulkan.cache_path = vulkan_cache_path_.c_str();
+  }
+}
+
+const FlutterRendererConfig& EmbedderEngine::GetSpawnRendererConfig() const {
+  return renderer_config_;
+}
+
+const FlutterProjectArgs& EmbedderEngine::GetSpawnProjectArgs() const {
+  return project_args_;
 }
 
 }  // namespace flutter

@@ -1793,3 +1793,62 @@ Future<void> a11y_main_multi_view() async {
   await semanticsChanged;
   notifySemanticsEnabled(PlatformDispatcher.instance.semanticsEnabled);
 }
+
+// Fixtures for the FlutterEngineSpawn tests.
+
+@pragma('vm:entry-point')
+void spawnTargetSaysHi() {
+  sayHiFromSpawnTarget();
+}
+
+@pragma('vm:external-name', 'SayHiFromSpawnTarget')
+external void sayHiFromSpawnTarget();
+
+@pragma('vm:entry-point')
+void spawnTargetReports(List<String> args) {
+  notifyStringValue(
+      '${PlatformDispatcher.instance.defaultRouteName}|${args.join(',')}');
+}
+
+@pragma('vm:entry-point')
+void spawnTargetSendsMessage() {
+  PlatformDispatcher.instance.sendPlatformMessage(
+      'spawn_msg', _byteDataFromString('hello_from_spawn'), null);
+}
+
+@pragma('vm:entry-point')
+void spawnParentSchedulesMicrotask() {
+  PlatformDispatcher.instance.onPlatformMessage = (channel, data, callback) {
+    if (channel == 'spawn_schedule_microtasks') {
+      scheduleMicrotask(() {
+        notifyStringValue('parent_microtask');
+      });
+    } else if (channel == 'spawn_parent_ping') {
+      scheduleMicrotask(() {
+        notifyStringValue('parent_after_child_shutdown');
+      });
+    }
+  };
+}
+
+@pragma('vm:entry-point')
+void spawnChildSchedulesMicrotask() {
+  notifyStringValue('child_started');
+  PlatformDispatcher.instance.onPlatformMessage = (channel, data, callback) {
+    if (channel == 'spawn_schedule_microtasks') {
+      scheduleMicrotask(() {
+        notifyStringValue('child_microtask');
+      });
+    }
+  };
+}
+
+ByteData _byteDataFromString(String value) {
+  final bytes = utf8.encode(value);
+  final data = ByteData(bytes.length);
+  for (var i = 0; i < bytes.length; i++) {
+    data.setUint8(i, bytes[i]);
+  }
+  return data;
+}
+

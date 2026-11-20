@@ -6,7 +6,9 @@
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_ENGINE_H_
 
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/common/shell.h"
@@ -90,13 +92,80 @@ class EmbedderEngine {
 
   Shell& GetShell();
 
+  // --------------------------------------------------------------------------
+  // Engine group spawning support. These methods back the |FlutterEngineSpawn|
+  // embedder API declared in embedder.h.
+  // --------------------------------------------------------------------------
+
+  //----------------------------------------------------------------------------
+  /// @brief      Creates an embedder engine that adopts an already running
+  ///             shell produced by |Shell::Spawn|. The adopted shell shares
+  ///             its task runners (and therefore its threads) with the shell
+  ///             it was spawned from, and shares the spawning engine's thread
+  ///             host (which may be null) instead of owning one.
+  ///
+  EmbedderEngine(std::shared_ptr<EmbedderThreadHost> thread_host,
+                 const TaskRunners& task_runners,
+                 std::unique_ptr<Shell> running_shell,
+                 std::unique_ptr<EmbedderExternalTextureResolver>
+                     external_texture_resolver);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Spawns a new engine in the same isolate group as this
+  ///             engine. The new engine shares this engine's threads, Dart VM
+  ///             and isolate snapshot, and is returned in a running state.
+  ///             This engine must be running and must outlive the spawned
+  ///             engine. Returns nullptr on failure.
+  ///
+  std::unique_ptr<EmbedderEngine> Spawn(
+      RunConfiguration run_configuration,
+      const std::string& initial_route,
+      const Shell::CreateCallback<PlatformView>& on_create_platform_view,
+      const Shell::CreateCallback<Rasterizer>& on_create_rasterizer,
+      std::unique_ptr<EmbedderExternalTextureResolver>
+          external_texture_resolver);
+
+  //----------------------------------------------------------------------------
+  /// @brief      Retains the renderer configuration and the project argument
+  ///             fields required to construct the callbacks of engines
+  ///             spawned from this engine.
+  ///
+  void SetSpawnSources(const FlutterRendererConfig& renderer_config,
+                       const FlutterProjectArgs& project_args);
+
+  const FlutterRendererConfig& GetSpawnRendererConfig() const;
+
+  const FlutterProjectArgs& GetSpawnProjectArgs() const;
+
  private:
-  std::unique_ptr<EmbedderThreadHost> thread_host_;
+  void RegisterMicrotaskFlushCallback();
+  void UnregisterMicrotaskFlushCallback();
+
+  // True only for the root engine that owns the lifetime and invalidation of
+  // the shared thread host. Spawned engines merely hold a shared reference.
+  const bool owns_thread_host_;
+  // Shared with engines spawned from this engine so that they can run
+  // tasks posted to the (shared) task runners. May be null when the engine
+  // has no engine-managed or registered custom task runners.
+  std::shared_ptr<EmbedderThreadHost> thread_host_;
+  uint64_t microtask_flush_callback_id_ = 0;
   TaskRunners task_runners_;
   RunConfiguration run_configuration_;
   std::unique_ptr<ShellArgs> shell_args_;
   std::unique_ptr<Shell> shell_;
   std::unique_ptr<EmbedderExternalTextureResolver> external_texture_resolver_;
+
+  // Retained spawn sources. See |SetSpawnSources|.
+  FlutterRendererConfig renderer_config_ = {};
+  FlutterProjectArgs project_args_ = {};
+
+  // Owns the Vulkan strings referenced by |renderer_config_|. The public API
+  // only requires these strings to remain valid during engine initialization.
+  std::vector<std::string> vulkan_instance_extension_names_;
+  std::vector<const char*> vulkan_instance_extension_name_pointers_;
+  std::vector<std::string> vulkan_device_extension_names_;
+  std::vector<const char*> vulkan_device_extension_name_pointers_;
+  std::string vulkan_cache_path_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(EmbedderEngine);
 };
