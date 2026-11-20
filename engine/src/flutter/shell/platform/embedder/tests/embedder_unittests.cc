@@ -4466,6 +4466,36 @@ TEST_F(EmbedderTest, SpawnSourcesDeepCopyVulkanData) {
   EXPECT_STREQ(retained.cache_path, "/tmp/flutter_vulkan_cache");
 }
 
+TEST_F(EmbedderTest, SpawnSourcesRespectRendererStructSize) {
+  auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
+  EmbedderConfigBuilder builder(context);
+  builder.SetSurface(DlISize(1, 1));
+  auto engine = builder.LaunchEngine();
+  ASSERT_TRUE(engine.is_valid());
+  auto* embedder_engine = reinterpret_cast<EmbedderEngine*>(engine.get());
+
+  FlutterRendererConfig renderer_config = {};
+  renderer_config.type = kOpenGL;
+  renderer_config.open_gl.struct_size =
+      offsetof(FlutterOpenGLRendererConfig, populate_existing_damage);
+  renderer_config.open_gl.make_current = [](void*) { return true; };
+  renderer_config.open_gl.present = [](void*) { return true; };
+  renderer_config.open_gl.populate_existing_damage = [](void*, const intptr_t,
+                                                        FlutterDamage*) {};
+
+  FlutterProjectArgs project_args = {};
+  embedder_engine->SetSpawnSources(renderer_config, project_args);
+
+  const auto& retained = embedder_engine->GetSpawnRendererConfig();
+  EXPECT_EQ(retained.type, kOpenGL);
+  EXPECT_EQ(retained.open_gl.struct_size,
+            offsetof(FlutterOpenGLRendererConfig, populate_existing_damage));
+  EXPECT_EQ(retained.open_gl.make_current,
+            renderer_config.open_gl.make_current);
+  EXPECT_EQ(retained.open_gl.present, renderer_config.open_gl.present);
+  EXPECT_EQ(retained.open_gl.populate_existing_damage, nullptr);
+}
+
 TEST_F(EmbedderTest, CanSpawnEngineFromRunningEngine) {
   auto& context = GetEmbedderContext<EmbedderTestContextSoftware>();
   EmbedderConfigBuilder builder(context);

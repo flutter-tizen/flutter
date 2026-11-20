@@ -472,14 +472,82 @@ std::unique_ptr<EmbedderEngine> EmbedderEngine::Spawn(
 void EmbedderEngine::SetSpawnSources(
     const FlutterRendererConfig& renderer_config,
     const FlutterProjectArgs& project_args) {
-  renderer_config_ = renderer_config;
+  renderer_config_ = {};
+  renderer_config_.type = renderer_config.type;
   project_args_ = project_args;
+
+#define COPY_RENDERER_FIELD(field) \
+  destination.field = SAFE_ACCESS((&source), field, decltype(source.field)())
+
+  switch (renderer_config.type) {
+    case kOpenGL: {
+      const auto& source = renderer_config.open_gl;
+      auto& destination = renderer_config_.open_gl;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(make_current);
+      COPY_RENDERER_FIELD(clear_current);
+      COPY_RENDERER_FIELD(present);
+      COPY_RENDERER_FIELD(fbo_callback);
+      COPY_RENDERER_FIELD(make_resource_current);
+      COPY_RENDERER_FIELD(fbo_reset_after_present);
+      COPY_RENDERER_FIELD(surface_transformation);
+      COPY_RENDERER_FIELD(gl_proc_resolver);
+      COPY_RENDERER_FIELD(gl_external_texture_frame_callback);
+      COPY_RENDERER_FIELD(fbo_with_frame_info_callback);
+      COPY_RENDERER_FIELD(present_with_info);
+      COPY_RENDERER_FIELD(populate_existing_damage);
+      break;
+    }
+    case kSoftware: {
+      const auto& source = renderer_config.software;
+      auto& destination = renderer_config_.software;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(surface_present_callback);
+      break;
+    }
+    case kMetal: {
+      const auto& source = renderer_config.metal;
+      auto& destination = renderer_config_.metal;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(device);
+      COPY_RENDERER_FIELD(present_command_queue);
+      COPY_RENDERER_FIELD(get_next_drawable_callback);
+      COPY_RENDERER_FIELD(present_drawable_callback);
+      COPY_RENDERER_FIELD(external_texture_frame_callback);
+      break;
+    }
+    case kVulkan: {
+      const auto& source = renderer_config.vulkan;
+      auto& destination = renderer_config_.vulkan;
+      destination.struct_size = source.struct_size;
+      COPY_RENDERER_FIELD(version);
+      COPY_RENDERER_FIELD(instance);
+      COPY_RENDERER_FIELD(physical_device);
+      COPY_RENDERER_FIELD(device);
+      COPY_RENDERER_FIELD(queue_family_index);
+      COPY_RENDERER_FIELD(queue);
+      COPY_RENDERER_FIELD(enabled_instance_extension_count);
+      COPY_RENDERER_FIELD(enabled_instance_extensions);
+      COPY_RENDERER_FIELD(enabled_device_extension_count);
+      COPY_RENDERER_FIELD(enabled_device_extensions);
+      COPY_RENDERER_FIELD(get_instance_proc_address_callback);
+      COPY_RENDERER_FIELD(get_next_image_callback);
+      COPY_RENDERER_FIELD(present_image_callback);
+      COPY_RENDERER_FIELD(external_texture_frame_callback);
+      COPY_RENDERER_FIELD(cache_path);
+      break;
+    }
+  }
+
+#undef COPY_RENDERER_FIELD
 
   if (renderer_config.type != kVulkan) {
     return;
   }
 
-  const auto& vulkan = renderer_config.vulkan;
+  // Copy from the normalized configuration so unavailable fields are not read
+  // from an older, shorter renderer configuration.
+  const auto& vulkan = renderer_config_.vulkan;
   CopyVulkanExtensionNames(vulkan.enabled_instance_extension_count,
                            vulkan.enabled_instance_extensions,
                            vulkan_instance_extension_names_,
@@ -497,12 +565,11 @@ void EmbedderEngine::SetSpawnSources(
           ? nullptr
           : vulkan_device_extension_name_pointers_.data();
 
-  const char* cache_path = SAFE_ACCESS((&vulkan), cache_path, nullptr);
-  if (cache_path == nullptr) {
+  if (vulkan.cache_path == nullptr) {
     vulkan_cache_path_.clear();
     renderer_config_.vulkan.cache_path = nullptr;
   } else {
-    vulkan_cache_path_ = cache_path;
+    vulkan_cache_path_ = vulkan.cache_path;
     renderer_config_.vulkan.cache_path = vulkan_cache_path_.c_str();
   }
 }
