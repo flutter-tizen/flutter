@@ -6,7 +6,9 @@
 #define FLUTTER_SHELL_PLATFORM_EMBEDDER_EMBEDDER_ENGINE_H_
 
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/common/shell.h"
@@ -149,6 +151,14 @@ class EmbedderEngine {
   // Retained spawn sources. See |SetSpawnSources|.
   FlutterRendererConfig renderer_config_ = {};
   FlutterProjectArgs project_args_ = {};
+
+  // Owns the Vulkan strings referenced by |renderer_config_|. The public API
+  // only requires these strings to remain valid during engine initialization.
+  std::vector<std::string> vulkan_instance_extension_names_;
+  std::vector<const char*> vulkan_instance_extension_name_pointers_;
+  std::vector<std::string> vulkan_device_extension_names_;
+  std::vector<const char*> vulkan_device_extension_name_pointers_;
+  std::string vulkan_cache_path_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(EmbedderEngine);
 };

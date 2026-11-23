@@ -5,6 +5,7 @@
 #include "flutter/shell/platform/embedder/embedder_engine.h"
 
 #include "flutter/fml/make_copyable.h"
+#include "flutter/shell/platform/embedder/embedder_struct_macros.h"
 #include "flutter/shell/platform/embedder/vsync_waiter_embedder.h"
 
 namespace flutter {
@@ -20,6 +21,32 @@ struct ShellArgs {
         on_create_platform_view(std::move(p_on_create_platform_view)),
         on_create_rasterizer(std::move(p_on_create_rasterizer)) {}
 };
+
+namespace {
+
+void CopyVulkanExtensionNames(size_t count,
+                              const char* const* source_names,
+                              std::vector<std::string>& names,
+                              std::vector<const char*>& name_pointers) {
+  names.clear();
+  name_pointers.clear();
+  if (source_names == nullptr) {
+    return;
+  }
+
+  names.reserve(count);
+  for (size_t i = 0; i < count; ++i) {
+    names.emplace_back(source_names[i]);
+  }
+
+  // Build the pointer array only after the string storage is fully populated.
+  name_pointers.reserve(count);
+  for (const auto& name : names) {
+    name_pointers.push_back(name.c_str());
+  }
+}
+
+}  // namespace
 
 EmbedderEngine::EmbedderEngine(
     std::unique_ptr<EmbedderThreadHost> thread_host,
@@ -401,6 +428,37 @@ void EmbedderEngine::SetSpawnSources(
     const FlutterProjectArgs& project_args) {
   renderer_config_ = renderer_config;
   project_args_ = project_args;
+
+  if (renderer_config.type != kVulkan) {
+    return;
+  }
+
+  const auto& vulkan = renderer_config.vulkan;
+  CopyVulkanExtensionNames(vulkan.enabled_instance_extension_count,
+                           vulkan.enabled_instance_extensions,
+                           vulkan_instance_extension_names_,
+                           vulkan_instance_extension_name_pointers_);
+  CopyVulkanExtensionNames(
+      vulkan.enabled_device_extension_count, vulkan.enabled_device_extensions,
+      vulkan_device_extension_names_, vulkan_device_extension_name_pointers_);
+
+  renderer_config_.vulkan.enabled_instance_extensions =
+      vulkan_instance_extension_name_pointers_.empty()
+          ? nullptr
+          : vulkan_instance_extension_name_pointers_.data();
+  renderer_config_.vulkan.enabled_device_extensions =
+      vulkan_device_extension_name_pointers_.empty()
+          ? nullptr
+          : vulkan_device_extension_name_pointers_.data();
+
+  const char* cache_path = SAFE_ACCESS((&vulkan), cache_path, nullptr);
+  if (cache_path == nullptr) {
+    vulkan_cache_path_.clear();
+    renderer_config_.vulkan.cache_path = nullptr;
+  } else {
+    vulkan_cache_path_ = cache_path;
+    renderer_config_.vulkan.cache_path = vulkan_cache_path_.c_str();
+  }
 }
 
 const FlutterRendererConfig& EmbedderEngine::GetSpawnRendererConfig() const {
