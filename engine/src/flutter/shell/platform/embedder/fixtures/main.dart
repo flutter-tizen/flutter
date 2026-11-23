@@ -1793,3 +1793,35 @@ Future<void> a11y_main_multi_view() async {
   await semanticsChanged;
   notifySemanticsEnabled(PlatformDispatcher.instance.semanticsEnabled);
 }
+
+// Fixtures for the FlutterEngineSpawn tests.
+
+@pragma('vm:entry-point')
+void spawnTargetSaysHi() {
+  sayHiFromSpawnTarget();
+}
+
+@pragma('vm:external-name', 'SayHiFromSpawnTarget')
+external void sayHiFromSpawnTarget();
+
+@pragma('vm:entry-point')
+void spawnTargetReports(List<String> args) {
+  notifyStringValue(
+      '${PlatformDispatcher.instance.defaultRouteName}|${args.join(',')}');
+}
+
+@pragma('vm:entry-point')
+void spawnTargetSendsMessage() {
+  PlatformDispatcher.instance.sendPlatformMessage(
+      'spawn_msg', _byteDataFromString('hello_from_spawn'), null);
+}
+
+ByteData _byteDataFromString(String value) {
+  final bytes = utf8.encode(value);
+  final data = ByteData(bytes.length);
+  for (var i = 0; i < bytes.length; i++) {
+    data.setUint8(i, bytes[i]);
+  }
+  return data;
+}
+
