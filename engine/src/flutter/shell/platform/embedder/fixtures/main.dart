@@ -1816,6 +1816,34 @@ void spawnTargetSendsMessage() {
       'spawn_msg', _byteDataFromString('hello_from_spawn'), null);
 }
 
+@pragma('vm:entry-point')
+void spawnParentSchedulesMicrotask() {
+  PlatformDispatcher.instance.onPlatformMessage = (channel, data, callback) {
+    if (channel == 'spawn_schedule_microtasks') {
+      scheduleMicrotask(() {
+        notifyStringValue('parent_microtask');
+      });
+    } else if (channel == 'spawn_parent_ping') {
+      scheduleMicrotask(() {
+        notifyStringValue('parent_after_child_shutdown');
+      });
+    }
+  };
+}
+
+@pragma('vm:entry-point')
+void spawnChildSchedulesMicrotask() {
+  notifyStringValue('child_started');
+  PlatformDispatcher.instance.onPlatformMessage = (channel, data, callback) {
+    if (channel == 'spawn_schedule_microtasks') {
+      scheduleMicrotask(() {
+        notifyStringValue('child_microtask');
+      });
+    }
+  };
+}
+
+
 ByteData _byteDataFromString(String value) {
   final bytes = utf8.encode(value);
   final data = ByteData(bytes.length);
@@ -1824,4 +1852,3 @@ ByteData _byteDataFromString(String value) {
   }
   return data;
 }
-
