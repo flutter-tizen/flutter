@@ -7,6 +7,8 @@
 #include "flutter/shell/platform/embedder/embedder_thread_host.h"
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 #include "flutter/fml/message_loop.h"
 #include "flutter/shell/platform/embedder/embedder_struct_macros.h"
@@ -318,6 +320,38 @@ EmbedderThreadHost::EmbedderThreadHost(
 }
 
 EmbedderThreadHost::~EmbedderThreadHost() = default;
+
+uint64_t EmbedderThreadHost::RegisterMicrotaskFlushCallback(
+    MicrotaskFlushCallback callback) {
+  if (!callback) {
+    return 0;
+  }
+  std::lock_guard lock(microtask_flush_mutex_);
+  const uint64_t callback_id = ++next_microtask_flush_callback_id_;
+  microtask_flush_callbacks_[callback_id] = std::move(callback);
+  return callback_id;
+}
+
+void EmbedderThreadHost::UnregisterMicrotaskFlushCallback(
+    uint64_t callback_id) {
+  std::lock_guard lock(microtask_flush_mutex_);
+  microtask_flush_callbacks_.erase(callback_id);
+}
+
+void EmbedderThreadHost::FlushMicrotaskQueues() {
+  std::vector<MicrotaskFlushCallback> callbacks;
+  {
+    std::lock_guard lock(microtask_flush_mutex_);
+    callbacks.reserve(microtask_flush_callbacks_.size());
+    for (const auto& entry : microtask_flush_callbacks_) {
+      callbacks.push_back(entry.second);
+    }
+  }
+
+  for (const auto& callback : callbacks) {
+    callback();
+  }
+}
 
 void EmbedderThreadHost::InvalidateActiveRunners() {
   std::lock_guard guard(active_runners_mutex_);
